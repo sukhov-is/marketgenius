@@ -16,18 +16,8 @@ def download_reports():
     }
     
     # Создаем папки для отчетов
-    if not os.path.exists('reports'):
-        os.makedirs('reports')
-    if not os.path.exists('reports/quarterly'):
-        os.makedirs('reports/quarterly')
-    if not os.path.exists('reports/yearly'):
-        os.makedirs('reports/yearly')
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
-
-    # Скачиваем квартальные отчеты
+    os.makedirs('reports/quarterly', exist_ok=True)
+    os.makedirs('reports/yearly', exist_ok=True)
     print("Скачиваем квартальные отчеты...")
     for ticker, name in companies.items():
         url = f"https://smart-lab.ru/q/{ticker}/f/q/MSFO/download/"
