@@ -1,12 +1,10 @@
 import asyncio
-import re
-import pandas as pd
-import emoji
+import json
 import os
+import pandas as pd
 from dotenv import load_dotenv
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
-# from config import API_ID, API_HASH, PHONE
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -18,7 +16,7 @@ PHONE = os.getenv('PHONE')
 # Параметры сессии
 session_name = 'Load_news'  
 
-# # Создание Telegram клиента
+# Параметры клиента Telethon
 client_kwargs = {
     'device_model': "PC",                     
     'system_version': "4.16.30-vxCUSTOM",       
@@ -27,62 +25,40 @@ client_kwargs = {
     'system_lang_code': "en"                    
 }
 
-# Список каналов (username или ссылка)
-channels = [
-    't.me/banksta',
-    't.me/newssmartlab',
-    't.me/markettwits',
-    't.me/bcs_express',
-    't.me/ifax_go',
-    't.me/Information_disclosure',
-    't.me/bbbreaking',
-    't.me/tass_agency',
-    't.me/interfaxonline'
-    # добавьте необходимые каналы
-]
+# Загрузка конфигурации каналов из JSON-файла
+CONFIG_FILE = "channels_config.json"
 
-def clean_text(text):
-    """
-    Функция очистки текста:
-      - удаляет ссылки,
-      - убирает эмодзи,
-      - удаляет лишние пробелы и переносы строк.
-    """
-    if not text:
-        return ""
-    # Удаляем ссылки (http, https)
-    text = re.sub(r'http\S+', '', text)
-    # Удаляем эмодзи
-    text = emoji.replace_emoji(text, replace='')
-    # Удаляем лишние пробелы
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+def load_channels():
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return config.get("news", [])
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Ошибка загрузки конфигурации каналов: {e}")
+        return []
 
 async def main():
     # Инициализация клиента Telethon
     client = TelegramClient(session_name, API_ID, API_HASH, **client_kwargs)
     await client.start(phone=PHONE)
 
-    all_messages = []  # список для хранения всех сообщений
+    all_messages = []  # Список для хранения всех сообщений
+    channels = load_channels()
 
     for channel in channels:
         print(f"Получаем сообщения из канала: {channel}")
         try:
-            # Получаем сущность канала
             entity = await client.get_entity(channel)
-            # Перебор всех сообщений канала.
-            # Параметр reverse=True позволяет начать с самых старых сообщений.
             async for message in client.iter_messages(entity, limit=None, reverse=True):
                 if message.message:
                     dt = message.date  # объект datetime
                     date_str = dt.strftime("%Y-%m-%d")
                     time_str = dt.strftime("%H:%M:%S")
-                    cleaned_text = clean_text(message.message)
                     all_messages.append({
                         'date': date_str,
                         'time': time_str,
                         'channel': channel,
-                        'news': cleaned_text
+                        'news': message.message  # Оригинальный текст без очистки
                     })
         except FloodWaitError as e:
             print(f"FloodWaitError: Ждем {e.seconds} секунд...")
@@ -90,19 +66,17 @@ async def main():
         except Exception as e:
             print(f"Ошибка при обработке канала {channel}: {e}")
 
-    # Создаем DataFrame и сортируем сообщения по дате и времени
+    # Создание DataFrame и сохранение в CSV
     df = pd.DataFrame(all_messages)
     if not df.empty:
         df['datetime'] = pd.to_datetime(df['date'] + ' ' + df['time'])
         df.sort_values(by='datetime', inplace=True)
         df.drop(columns=['datetime'], inplace=True)
-        # Сохраняем данные в CSV-файл
         df.to_csv("data/external/news_tg_csv/telegram_news.csv", index=False)
         print("Данные сохранены в файле telegram_news.csv")
     else:
         print("Нет данных для сохранения.")
 
-    # disconnect() завершает только текущее соединение, не вызывайте log_out()
     await client.disconnect()
 
 if __name__ == '__main__':
