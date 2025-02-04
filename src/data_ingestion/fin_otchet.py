@@ -1,118 +1,20 @@
+import json
 import requests
 import os
 from time import sleep
 
-def download_reports():
-    companies = {
-    "MSNG": "+МосЭнерго",
-    "DATA": "iАренадата",
-    "WUSH": "iВУШХолднг",
-    "DIAS": "iДиасофт",
-    "IVAT": "iИВА",
-    "DELI": "iКаршеринг",
-    "POSI": "iПозитив",
-    "SOFL": "iСофтлайн",
-    "MDMG": "MDMG-ао",
-    "AKRN": "Акрон",
-    "ALRS": "АЛРОСА ао",
-    "APTK": "Аптеки36и6",
-    "ASTR": "Астра ао",
-    "AFLT": "Аэрофлот",
-    "BANE": "Башнефт ап",
-    "BSPB": "БСП ао",
-    "VSEH": "ВИ.ру",
-    "VSMO": "ВСМПО-АВСМ",
-    "VTBR": "ВТБ ао",
-    "GAZP": "ГАЗПРОМ ао",
-    "GMKN": "ГМКНорНик",
-    "FESH": "ДВМП ао",
-    "DVEC": "ДЭК ао",
-    "LEAS": "Европлан",
-    "EUTR": "ЕвроТранс",
-    "ZAYM": "Займер ао",
-    "AQUA": "ИНАРКТИКА",
-    "IRAO": "ИнтерРАОао",
-    "LENT": "Лента ао",
-    "LSRG": "ЛСР ао",
-    "LKOH": "ЛУКОЙЛ",
-    "MVID": "М.видео",
-    "MGNT": "Магнит ао",
-    "MGTS": "МГТС-4ап",
-    "MTLR": "Мечел ао",
-    "MTLRP": "Мечел ап",
-    "CBOM": "МКБ ао",
-    "VKCO": "МКПАО ВК",
-    "GEMC": "МКПАО ЮМГ",
-    "MAGN": "ММК",
-    "MOEX": "МосБиржа",
-    "MBNK": "МТС Банк",
-    "MTSS": "МТС-ао",
-    "NKNC": "НКНХ ап",
-    "NKHP": "НКХП ао",
-    "NLMK": "НЛМК ао",
-    "NMTP": "НМТП ао",
-    "BELU": "НоваБев ао",
-    "NVTK": "Новатэк ао",
-    "OGKB": "ОГК-2 ао",
-    "OZPH": "ОзонФарм",
-    "KZOS": "ОргСинт ао",
-    "KZOSP": "ОргСинт ап",
-    "PIKK": "ПИК ао",
-    "PLZL": "Полюс",
-    "PRMD": "ПРОМОМЕД",
-    "RASP": "Распадская",
-    "RENI": "Ренессанс",
-    "ROSN": "Роснефть",
-    "FEES": "Россети",
-    "MRKU": "Россети Ур",
-    "MRKC": "РоссЦентр",
-    "RTKM": "Ростел-ао",
-    "RTKMP": "Ростел-ап",
-    "MRKV": "РсетВол ао",
-    "LSNGP": "РСетиЛЭ-п",
-    "MSRS": "РСетиМР ао",
-    "MRKP": "РСетиЦП ао",
-    "RUAL": "РУСАЛ ао",
-    "HYDR": "РусГидро",
-    "RNFT": "РуссНфт ао",
-    "SMLT": "Самолет ао",
-    "SBER": "Сбербанк",
-    "SBERP": "Сбербанк-п",
-    "CHMF": "СевСт-ао",
-    "SGZH": "Сегежа",
-    "SELG": "Селигдар",
-    "AFKS": "Система ао",
-    "SVCB": "Совкомбанк",
-    "FLOT": "Совкомфлот",
-    "SVAV": "СОЛЛЕРС",
-    "SPBE": "СПБ Биржа",
-    "SNGS": "Сургнфгз",
-    "SNGSP": "Сургнфгз-п",
-    "T": "Т-Техно ао",
-    "TATN": "Татнфт 3ао",
-    "TATNP": "Татнфт 3ап",
-    "TGKA": "ТГК-1",
-    "TGKB": "ТГК-2",
-    "TRMK": "ТМК ао",
-    "TRNFP": "Транснф ап",
-    "PHOR": "ФосАгро ао",
-    "HEAD": "Хэдхантер",
-    "HNFG": "ХЭНДЕРСОН",
-    "ELFV": "ЭЛ5Энер ао",
-    "SFIN": "ЭН+ГРУП ао",
-    "ESFA": "ЭсЭфАй ао",
-    "UGLD": "ЮГК",
-    "UPRO": "Юнипро ао",
-    "YDEX": "ЯНДЕКС"
-    }
-    
-    # Создаем папки для отчетов
-    if not os.path.exists('Data_storage/reports'):
-        os.makedirs('Data Storage/reports')
-    if not os.path.exists('Data Storage/reports/quarterly'):
-        os.makedirs('Data Storage/reports/quarterly')
-    if not os.path.exists('Data Storage/reports/yearly'):
-        os.makedirs('Data Storage/reports/yearly')
+def load_config(config_file='companies_config.json'):
+    """Загружает конфигурацию из JSON-файла."""
+    with open(config_file, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    return config
+
+def download_reports(companies):
+    # Создаем папки для отчетов (используем os.makedirs с exist_ok=True)
+    quarterly_dir = os.path.join('data', 'reports', 'quarterly')
+    yearly_dir = os.path.join('data', 'reports', 'yearly')
+    os.makedirs(quarterly_dir, exist_ok=True)
+    os.makedirs(yearly_dir, exist_ok=True)
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -122,41 +24,42 @@ def download_reports():
     print("Скачиваем квартальные отчеты...")
     for ticker, name in companies.items():
         url = f"https://smart-lab.ru/q/{ticker}/f/q/MSFO/download/"
-        filename = f"Data Storage/reports/quarterly/{ticker}_quarterly.csv"
-        
+        filename = os.path.join(quarterly_dir, f"{ticker}_quarterly.csv")
         try:
             print(f"Скачиваем квартальный отчет {name} ({ticker})...")
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            
             with open(filename, 'wb') as f:
                 f.write(response.content)
             print(f"Успешно сохранено в {filename}")
         except Exception as e:
-            print(f"Ошибка при скачивании {ticker}: {str(e)}")
-        
-        sleep(2)  # Пауза между запросами
+            print(f"Ошибка при скачивании {ticker}: {e}")
+        sleep(1)  # Пауза между запросами
 
     # Скачиваем годовые отчеты
     print("\nСкачиваем годовые отчеты...")
     for ticker, name in companies.items():
         url = f"https://smart-lab.ru/q/{ticker}/f/y/MSFO/download/"
-        filename = f"data/reports/yearly/{ticker}_yearly.csv"
-        
+        filename = os.path.join(yearly_dir, f"{ticker}_yearly.csv")
         try:
             print(f"Скачиваем годовой отчет {name} ({ticker})...")
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            
             with open(filename, 'wb') as f:
                 f.write(response.content)
             print(f"Успешно сохранено в {filename}")
         except Exception as e:
-            print(f"Ошибка при скачивании {ticker}: {str(e)}")
-        
+            print(f"Ошибка при скачивании {ticker}: {e}")
         sleep(2)  # Пауза между запросами
 
     print("\nЗагрузка завершена!")
 
 if __name__ == "__main__":
-    download_reports()
+    # Загружаем конфигурацию из файла
+    config = load_config()
+    # Предполагается, что в JSON-конфиге данные компаний лежат под ключом "companies"
+    companies = config.get("companies", {})
+    if not companies:
+        print("Список компаний не найден в конфигурации!")
+    else:
+        download_reports(companies)

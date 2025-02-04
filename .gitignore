@@ -1,4 +1,4 @@
-*.json
+
 *.csv
 logs/
 .ipynb_checkpoints/
@@ -6,5 +6,4 @@ __pycache__/
 *.pyc
 venv/
 env/
-configs/
 .env
