@@ -1,0 +1,212 @@
+import asyncio
+import json
+import logging
+import os
+from datetime import datetime
+from typing import Dict, List
+
+import pandas as pd
+from dotenv import load_dotenv
+from telethon import TelegramClient
+
+# Загрузка переменных окружения
+load_dotenv()
+
+API_ID = os.getenv('API_ID')
+API_HASH = os.getenv('API_HASH')
+PHONE = os.getenv('PHONE')
+
+# Параметры сессии
+session_name = 'Load_news'
+
+# Параметры клиента Telethon
+client_kwargs = {
+    'device_model': "PC",
+    'system_version': "4.16.30-vxCUSTOM",
+    'app_version': "7.8.0",
+    'lang_code': "en",
+    'system_lang_code': "en"
+}
+
+# Настройки парсера
+BATCH_SIZE = 1000  # Размер пакета сообщений
+WAIT_TIME = 0     # Задержка между пакетами (в секундах)
+
+# Пути к файлам
+CONFIG_FILE = "configs/channels_config.json"
+LOG_DIR = "logs"
+LOG_FILE = os.path.join(LOG_DIR, f"telegram_parser_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+
+# Создаем директорию для логов, если её нет
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Настройка логгера
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+def load_channels() -> Dict[str, str]:
+    """
+    Загружает конфигурацию каналов из JSON-файла.
+    
+    Returns:
+        Dict[str, str]: Словарь, где ключ - ссылка на канал, значение - название канала
+    """
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return config.get("news", {})
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"Ошибка загрузки конфигурации каналов: {e}")
+        return {}
+
+class TelegramNewsParser:
+    def __init__(self, session_name: str, api_id: str, api_hash: str, phone: str):
+        """
+        Инициализация парсера новостей Telegram.
+
+        Args:
+            session_name (str): Имя сессии
+            api_id (str): API ID от Telegram
+            api_hash (str): API Hash от Telegram
+            phone (str): Номер телефона для аутентификации
+        """
+        self.session_name = session_name
+        self.api_id = api_id
+        self.api_hash = api_hash
+        self.phone = phone
+        self.client = None
+        self.messages: List[Dict] = []
+
+    async def init_client(self) -> None:
+        """Инициализация клиента"""
+        self.client = TelegramClient(
+            self.session_name,
+            self.api_id,
+            self.api_hash,
+            **client_kwargs
+        )
+        await self.client.start(phone=self.phone)
+        logger.info("Клиент Telegram успешно инициализирован")
+
+    async def process_channel(self, channel_link: str, channel_name: str) -> None:
+        """
+        Обработка одного канала.
+
+        Args:
+            channel_link (str): Ссылка на канал
+            channel_name (str): Название канала
+        """
+        logger.info(f"Начало обработки канала: {channel_name}")
+        entity = await self.client.get_entity(channel_link)
+        message_count = 0
+        batch = []
+
+        async for message in self.client.iter_messages(
+            entity,
+            limit=None,
+            reverse=True
+        ):
+            if message.message:
+                batch.append({
+                    'datetime': message.date,
+                    'channel_name': channel_name,
+                    'channel_link': channel_link,
+                    'message_id': message.id,
+                    'news': message.message
+                })
+                message_count += 1
+
+                if len(batch) >= BATCH_SIZE:
+                    self.messages.extend(batch)
+                    batch = []
+                    if message_count % 10000 == 0:
+                        logger.info(f"Обработано {message_count} сообщений из канала {channel_name}")
+                    # await asyncio.sleep(WAIT_TIME)  # Пауза между пакетами
+
+        # Добавляем оставшиеся сообщения
+        if batch:
+            self.messages.extend(batch)
+
+        logger.info(f"Завершена обработка канала {channel_name}. Всего сообщений: {message_count}")
+
+    def _prepare_dataframe(self) -> pd.DataFrame:
+        """
+        Подготовка DataFrame с правильным форматированием.
+        
+        Returns:
+            pd.DataFrame: Подготовленный DataFrame с новостями
+        """
+        if not self.messages:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(self.messages)
+
+        # Создание ссылок на сообщения
+        df['message_link'] = df.apply(
+            lambda row: f"https://{row['channel_link']}/{row['message_id']}"
+            if row['channel_link'].startswith("t.me")
+            else f"{row['channel_link']}/{row['message_id']}",
+            axis=1
+        )
+
+        # Очистка и сортировка DataFrame
+        df.drop(columns=['channel_link', 'message_id'], inplace=True)
+        df = df[['datetime', 'channel_name', 'message_link', 'news']]
+        df.sort_values(by='datetime', inplace=True)
+
+        return df
+
+    async def run(self) -> None:
+        """Основной метод запуска парсера"""
+        try:
+            await self.init_client()
+            channels = load_channels()
+
+            if not channels:
+                logger.error("Не найдены каналы для обработки")
+                return
+
+            logger.info(f"Начало обработки {len(channels)} каналов")
+
+            # Последовательная обработка каналов
+            for channel_link, channel_name in channels.items():
+                await self.process_channel(channel_link, channel_name)
+
+            # Сохранение результатов
+            df = self._prepare_dataframe()
+            if not df.empty:
+                output_path = "data/external/news_tg_csv/telegram_news.tsv"
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                df.to_csv(output_path, index=False, sep='\t')
+                logger.info(f"Данные сохранены в файле {output_path}")
+            else:
+                logger.warning("Нет данных для сохранения")
+
+        finally:
+            if self.client:
+                await self.client.disconnect()
+                logger.info("Клиент Telegram отключен")
+
+async def main():
+    """Точка входа в программу"""
+    try:
+        parser = TelegramNewsParser(
+            session_name=session_name,
+            api_id=API_ID,
+            api_hash=API_HASH,
+            phone=PHONE
+        )
+        await parser.run()
+    except Exception as e:
+        logger.critical(f"Программа завершилась с ошибкой: {e}")
+        raise
+
+if __name__ == '__main__':
+    asyncio.run(main())

@@ -26,7 +26,7 @@ client_kwargs = {
 }
 
 # Загрузка конфигурации каналов из JSON-файла
-CONFIG_FILE = "channels_config.json"
+CONFIG_FILE = "configs/channels_config.json"
 
 def load_channels():
     try:

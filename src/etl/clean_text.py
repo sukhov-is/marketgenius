@@ -1,7 +1,7 @@
 import pandas as pd
 import json
 import argparse
-from etl.text import TextProcessor
+from text import TextProcessor
 
 
 def load_config(config_path):
@@ -30,13 +30,16 @@ def process_messages(df, text_processor):
 
 
 def main(input_path, annotator_config):
-    """Основная функция обработки CSV-файла."""
+    """Основная функция обработки CSV/TSV-файла."""
     # Загрузка конфигурации
     config = load_config(annotator_config)
     text_processor = TextProcessor(config["text_processor"])
 
-    # Загрузка CSV-файла
-    df = pd.read_csv(input_path, encoding="utf-8")
+    # Определяем разделитель на основе расширения файла
+    separator = "\t" if input_path.endswith(".tsv") else ","
+    
+    # Загрузка файла с соответствующим разделителем
+    df = pd.read_csv(input_path, encoding="utf-8", sep=separator)
 
     # Проверка наличия нужного столбца
     if "news" not in df.columns:
@@ -45,8 +48,8 @@ def main(input_path, annotator_config):
     # Обработка сообщений
     df, empty_messages_removed, duplicates_removed = process_messages(df, text_processor)
 
-    # Перезапись оригинального файла
-    df.to_csv(input_path, index=False, encoding="utf-8")
+    # Перезапись оригинального файла с тем же разделителем
+    df.to_csv(input_path, index=False, encoding="utf-8", sep=separator)
 
     # Вывод статистики
     print(f"Файл успешно обработан и сохранен в {input_path} (оригинальный файл заменен).")
@@ -56,7 +59,7 @@ def main(input_path, annotator_config):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Обработка сообщений в CSV-файле.")
-    parser.add_argument("--input-path", type=str, default="data/external/news_tg_csv/telegram_news.csv")
+    parser.add_argument("--input-path", type=str, default="data/external/news_tg_csv/telegram_news.tsv")
     parser.add_argument("--annotator-config", type=str, default="configs/annotator_config.json")
 
     args = parser.parse_args()
