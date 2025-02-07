@@ -223,7 +223,7 @@ class TelegramNewsParser:
             if not df.empty:
                 output_path = "data/external/news_tg_csv/telegram_news.сsv"
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)  # Создаем директорию, если её нет
-                df.to_csv(output_path, index=False, sep='\t')
+                df.to_csv(output_path, index=False)
                 logger.info(f"Данные сохранены в файле {output_path}")
             else:
                 logger.warning("Нет данных для сохранения")

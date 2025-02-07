@@ -3,11 +3,15 @@ from typing import List
 import torch
 from transformers import AutoModel, AutoTokenizer  # type: ignore
 from tqdm.auto import tqdm
+import os
 
 from util import set_random_seed, gen_batch
 
 # Определяем устройство для вычислений - GPU если доступен, иначе CPU
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Устанавливаем конфигурацию для CUBLAS
+os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
 class Embedder:
