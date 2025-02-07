@@ -23,23 +23,39 @@ T = TypeVar("T")
 
 
 class Cluster:
+    """Класс для представления кластера документов с похожим содержанием"""
+    
     def __init__(self) -> None:
+        """Инициализация кластера"""
+        # Список документов в кластере
         self.docs: List[Document] = list()
+        # Словарь для быстрого доступа к документам по URL
         self.url2doc: Dict[str, Document] = dict()
+        # Уникальный идентификатор кластера
         self.clid: Optional[int] = None
+        # Флаг важности кластера
         self.is_important: bool = False
 
+        # Время создания кластера
         self.create_time: Optional[int] = None
+        # Список идентификаторов сообщений, связанных с кластером
         self.messages: List[MessageId] = list()
 
+        # Матрица расстояний между документами в кластере
         self.distances: Optional[List[float]] = None
 
-        self.saved_annotation_doc: Optional[Document] = None
-        self.saved_first_doc: Optional[Document] = None
-        self.saved_hash: Optional[str] = None
-        self.saved_diff: Optional[List[Dict[str, Any]]] = None
+        # Кэшированные значения для оптимизации
+        self.saved_annotation_doc: Optional[Document] = None  # Документ с аннотацией
+        self.saved_first_doc: Optional[Document] = None      # Первый документ
+        self.saved_hash: Optional[str] = None               # Хеш кластера
+        self.saved_diff: Optional[List[Dict[str, Any]]] = None  # Различия между документами
 
     def add(self, doc: Document) -> None:
+        """
+        Добавление документа в кластер
+        Args:
+            doc: документ для добавления
+        """
         self.docs.append(doc)
         self.url2doc[doc.url] = doc
 
@@ -54,10 +70,16 @@ class Cluster:
 
     @property
     def pub_time(self) -> int:
+        """Время публикации первого документа в кластере"""
         return self.first_doc.pub_time
 
     @cached_property
     def fetch_time(self) -> int:
+        """
+        Максимальное время получения документов в кластере
+        Returns:
+            время в unix timestamp
+        """
         times = [doc.fetch_time for doc in self.docs if doc.fetch_time]
         if not times:
             return 0
@@ -65,19 +87,21 @@ class Cluster:
 
     @property
     def views(self) -> int:
+        """Общее количество просмотров всех документов"""
         return sum([doc.views for doc in self.docs])
 
     @property
     def debiased_views(self) -> int:
+        """
+        Скорректированное количество просмотров с учетом выбросов
+        Если документ имеет намного больше просмотров чем остальные,
+        его значение сглаживается до уровня второго по популярности
+        """
         views = [doc.views for doc in self.unique_docs]
         if len(views) <= 2:
             return sum(views)
         views.sort(reverse=True)
-
-        # Smoothing outliers for cases where
-        # one document has much more views than others
-        views[0] = views[1]
-
+        views[0] = views[1]  # Сглаживание выброса
         return sum(views)
 
     @property
@@ -96,20 +120,33 @@ class Cluster:
 
     @cached_property
     def pub_time_percentile(self) -> int:
+        """
+        Вычисляет 20-й процентиль времени публикации документов
+        для определения примерного начала события
+        """
         timestamps = sorted([d.pub_time for d in self.docs])
         return timestamps[len(timestamps) // 5]
 
     @cached_property
     def images(self) -> Sequence[str]:
+        """
+        Получает список URL изображений, если они присутствуют
+        в достаточном количестве документов кластера
+        """
+        # Подсчет документов с изображениями
         image_doc_count = sum([bool(doc.images) for doc in self.unique_docs])
         doc_count = len(self.unique_docs)
         if doc_count == 0:
             return tuple()
+            
+        # Получение URL изображений из аннотации
         images = [
             i["url"] for i in self.annotation_doc.embedded_images if self.annotation_doc
         ]
         if not images:
             return tuple()
+            
+        # Возвращаем изображения только если они есть в достаточном количестве документов
         if image_doc_count / doc_count >= 0.4 or image_doc_count >= 3:
             return images
         return tuple()
@@ -147,22 +184,31 @@ class Cluster:
 
     @property
     def diff(self) -> List[Dict[str, Any]]:
+        """
+        Генерирует список различий между документами в кластере
+        используя GPT-4 для анализа
+        """
         if self.saved_diff is not None:
             return self.saved_diff
 
+        # Загрузка шаблона промпта
         prompt_path: Path = BASE_DIR / "prompts/diff.txt"
         with open(prompt_path) as f:
             template = Template(f.read())
+        
+        # Генерация промпта с данными документов
         prompt = template.render(docs=self.docs, annotation_doc=self.annotation_doc)
         messages = [{"role": "user", "content": prompt}]
 
         differences: List[Dict[str, Any]] = []
         try:
+            # Получение и парсинг ответа от GPT-4
             content = openai_completion(messages=messages, model_name="gpt-4o")
             content = content[content.find("{") : content.rfind("}") + 1]
             parsed_content: Dict[str, List[Dict[str, Any]]] = json.loads(content)
             differences = parsed_content["differences"]
 
+            # Форматирование ссылок на каналы
             channel_titles = {doc.channel_id: doc.channel_title for doc in self.docs}
             doc_urls = {doc.channel_id: doc.url for doc in self.docs}
             for diff in differences:
@@ -212,6 +258,12 @@ class Cluster:
 
     @property
     def group(self) -> str:
+        """
+        Определяет группу кластера на основе распределения документов
+        по группам "blue", "red" и "purple"
+        Returns:
+            строка с названием группы
+        """
         groups = [doc.groups["main"] for doc in self.docs if doc.groups]
         if not groups:
             return "purple"
@@ -222,6 +274,7 @@ class Cluster:
         blue_part = groups_count["blue"] / all_count
         red_part = groups_count["red"] / all_count
 
+        # Определяем группу на основе преобладания документов
         if blue_part == 0.0 and red_part > 0.5:
             return "red"
         if red_part == 0.0 and blue_part > 0.5:
@@ -230,14 +283,22 @@ class Cluster:
 
     @property
     def issues(self) -> List[str]:
+        """
+        Определяет список тем (issues) кластера
+        Returns:
+            список тем
+        """
+        # Если есть привязанные сообщения, берем темы из них
         if self.messages:
             return [m.issue for m in self.messages]
 
         def get_most_common(items: List[T]) -> List[T]:
+            """Вспомогательная функция для получения наиболее частых элементов"""
             counter = Counter(items)
             max_count = counter.most_common(1)[0][1]
             return [item for item, count in counter.items() if count == max_count]
 
+        # Получаем наиболее частые темы и категории из документов
         issues: List[str] = get_most_common(
             [doc.issue for doc in self.docs if doc.issue]
         )
@@ -245,6 +306,7 @@ class Cluster:
             [doc.category for doc in self.docs if doc.category]
         )
 
+        # Формируем итоговый список тем
         final_issues: List[str] = ["main"]
         final_issues.extend(issues)
         final_issues.extend(categories)
@@ -264,6 +326,11 @@ class Cluster:
         return f"{host}/{message_id}"
 
     def asdict(self) -> Dict[str, Any]:
+        """
+        Сериализует кластер в словарь
+        Returns:
+            словарь с данными кластера
+        """
         docs = [d.asdict(is_short=True) for d in self.docs]
         annotation_doc = self.annotation_doc.asdict()
         first_doc = self.first_doc.asdict(is_short=True)
@@ -316,9 +383,15 @@ class Cluster:
 
 
 class Clusters:
+    """Класс для управления коллекцией кластеров"""
+
     def __init__(self) -> None:
+        """Инициализация коллекции кластеров"""
+        # Словарь для быстрого доступа к кластерам по их ID
         self.clid2cluster: Dict[int, Cluster] = dict()
+        # Словарь для быстрого доступа к кластерам по ID сообщений
         self.message2cluster: Dict[MessageId, Cluster] = dict()
+        # Максимальный ID кластера
         self.max_clid: int = 60000
 
     def find_similar(
@@ -328,6 +401,17 @@ class Clusters:
         min_size_ratio: float = 0.25,
         min_intersection_ratio: float = 0.25,
     ) -> Optional[Cluster]:
+        """
+        Поиск похожего кластера среди существующих
+        Args:
+            cluster: кластер для поиска похожего
+            issue_name: название темы
+            min_size_ratio: минимальное отношение размеров кластеров
+            min_intersection_ratio: минимальное отношение пересечения
+        Returns:
+            похожий кластер или None
+        """
+        # Собираем сообщения для URL'ов из кластера
         messages = list()
         for url in cluster.urls:
             message = self.urls2messages[issue_name].get(url)
@@ -337,11 +421,13 @@ class Clusters:
         if not messages:
             return None
 
+        # Находим наиболее частое сообщение
         message, intersection_count = Counter(messages).most_common()[0]
         old_cluster = self.message2cluster.get(message)
         if old_cluster is None:
             return None
 
+        # Вычисляем метрики схожести кластеров
         new_cluster_size = len(cluster.urls)
         old_cluster_size = len(old_cluster.urls)
         intersection_ratio = intersection_count / new_cluster_size
@@ -350,13 +436,24 @@ class Clusters:
         )
         size_ratio = new_cluster_size / old_cluster_size
 
+        # Проверяем условия схожести
         if size_ratio < min_size_ratio or intersection_ratio < min_intersection_ratio:
             return None
         return old_cluster
 
     def get_embedded_clusters(self, current_ts: int, issue: str) -> List[Cluster]:
+        """
+        Получает список кластеров с эмбеддингами для заданной темы
+        Args:
+            current_ts: текущее время
+            issue: тема
+        Returns:
+            список кластеров
+        """
         filtered_clusters = []
         for cluster in self.clid2cluster.values():
+            # Фильтруем кластеры по наличию эмбеддинга, сообщений,
+            # временному окну и теме
             if not cluster.embedding:
                 continue
             if not cluster.messages:
