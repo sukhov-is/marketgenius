@@ -1,182 +1,247 @@
+import argparse
 import json
 import os
-from typing import Dict, List, Any
+import logging
+from datetime import datetime, timedelta
+from typing import List, Dict
 
 import numpy as np
-from scipy.special import expit  # type: ignore
-from sklearn.cluster import AgglomerativeClustering  # type: ignore
-from sklearn.metrics import pairwise_distances  # type: ignore
+import pandas as pd
+from scipy.special import expit
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import pairwise_distances
+from tqdm import tqdm
 
-from nyan.clusters import Cluster
-from nyan.document import Document
-
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 class Clusterer:
-    """Класс для кластеризации документов на основе их эмбеддингов и дополнительных параметров"""
+    """Класс для кластеризации новостей"""
     
     def __init__(self, config_path: str):
-        """
-        Инициализация кластеризатора
-        Args:
-            config_path: путь к конфигурационному файлу
-        """
-        assert os.path.exists(config_path)
-        with open(config_path) as r:
-            self.config: Dict[str, Any] = json.load(r)
+        assert os.path.exists(config_path), f"Config file {config_path} not found"
+        with open(config_path, 'r', encoding='utf-8') as f:
+            self.config = json.load(f)
+        
+        # История кластеров для отслеживания дубликатов
+        self.historical_centroids = []
+        self.historical_creation_times = []
+        self.max_history_days = self.config.get('max_history_days', 7)
 
-    def __call__(self, docs: List[Document]) -> List[Cluster]:
+    def cluster_documents(self, df: pd.DataFrame) -> List[Dict]:
         """
-        Выполняет кластеризацию документов
+        Кластеризация новостей
         Args:
-            docs: список документов для кластеризации
+            df: DataFrame с новостями
         Returns:
-            список кластеров
+            список кластеров в виде словарей
         """
-        assert docs, "No docs for clusterer"
+        if df.empty:
+            return []
 
         # Получение параметров из конфигурации
-        distances_config = self.config["distances"]
-        same_channels_penalty = distances_config.get("same_channels_penalty", 1.0)  # Штраф для документов из одного канала
-        fix_same_channels = same_channels_penalty > 1.0
-        time_penalty_modifier = distances_config.get("time_penalty_modifier", 1.0)  # Модификатор штрафа по времени
-        fix_time = time_penalty_modifier > 1.0
-        time_shift_hours = distances_config.get("time_shift_hours", 4)  # Временной сдвиг в часах
-        ntp_issues = distances_config.get("no_time_penalty_issues", tuple())  # Исключения для временного штрафа
-        image_bonus = distances_config.get("image_bonus", 0.0)  # Бонус за одинаковые изображения
-        fix_images = image_bonus > 0.0
-        if fix_images:
-            image_idx2cluster = self.find_image_duplicates(docs)
+        clustering_params = self.config.get("clustering", {})
+        distances_config = self.config.get("distances", {})
+        same_channels_penalty = distances_config.get("same_channels_penalty", 1.0)
+        time_penalty_modifier = distances_config.get("time_penalty_modifier", 1.0)
+        time_shift_hours = distances_config.get("time_shift_hours", 4)
 
-        # Инициализация матрицы эмбеддингов
-        min_distance = 0.0
-        max_distance = 1.0
-        assert docs[0].embedding
-        dim = len(docs[0].embedding)
-        # Создаем матрицу для хранения эмбеддингов всех документов
-        embeddings = np.zeros((len(docs), dim), dtype=np.float32)
-        for i, doc in enumerate(docs):
-            embeddings[i, :] = doc.embedding
+        # Формирование матрицы эмбеддингов
+        embeddings = np.array([json.loads(emb) for emb in df['embedding']])
+        
+        # Вычисление попарных расстояний
+        distances = pairwise_distances(embeddings, metric="cosine")
 
-        # Вычисляем попарные косинусные расстояния между документами
-        distances = pairwise_distances(
-            embeddings, metric="cosine", force_all_finite=False
-        )
-
-        # Корректируем расстояния с учетом различных факторов
-        for i1, doc1 in enumerate(docs):
-            for i2, doc2 in enumerate(docs):
-                if i1 == i2:
+        # Применение штрафов
+        n = len(df)
+        for i in range(n):
+            for j in range(n):
+                if i == j:
                     continue
+                    
+                # Штраф за одинаковый канал
+                if df.iloc[i]['channel_name'] == df.iloc[j]['channel_name']:
+                    distances[i, j] *= same_channels_penalty
 
-                # Проверяем, применим ли временной штраф к данным документам
-                is_time_fixable_issues = (
-                    doc1.issue not in ntp_issues or doc2.issue not in ntp_issues
-                )
+                # Временной штраф
+                if time_penalty_modifier > 1.0:
+                    time_diff = abs((df.iloc[i]['datetime'] - df.iloc[j]['datetime']).total_seconds())
+                    hours_diff = time_diff / 3600.0
+                    hours_shifted = hours_diff - time_shift_hours
+                    penalty = 1.0 + expit(hours_shifted) * (time_penalty_modifier - 1.0)
+                    distances[i, j] *= penalty
 
-                # Применяем штраф для документов из одного канала
-                if fix_same_channels and doc1.channel_id == doc2.channel_id:
-                    distances[i1, i2] = min(
-                        max_distance, distances[i1, i2] * same_channels_penalty
-                    )
-                    continue
+        # Настройка параметров кластеризации
+        clustering_params.update({
+            "affinity": "precomputed",
+            "linkage": "average"
+        })
 
-                # Проверяем наличие одинаковых изображений
-                max_images_count = max(
-                    len(doc1.embedded_images), len(doc2.embedded_images)
-                )
-                min_images_count = min(
-                    len(doc1.embedded_images), len(doc2.embedded_images)
-                )
-                # Определяем, находятся ли изображения в одном кластере
-                is_same_image_cluster = image_idx2cluster.get(
-                    i1, -1
-                ) == image_idx2cluster.get(i2, -2)
+        # Кластеризация
+        clustering = AgglomerativeClustering(**clustering_params)
+        labels = clustering.fit_predict(distances)
 
-                # Применяем бонус за одинаковые изображения
-                if (
-                    fix_images
-                    and min_images_count >= 1
-                    and max_images_count <= 2
-                    and is_same_image_cluster
-                ):
-                    distances[i1, i2] = max(
-                        min_distance, distances[i1, i2] * (1.0 - image_bonus)
-                    )
-
-                # Применяем временной штраф
-                if fix_time and is_time_fixable_issues:
-                    # Вычисляем разницу во времени публикации
-                    time_diff = abs(doc1.pub_time - doc2.pub_time)
-                    # Вычисляем сдвиг в часах относительно порогового значения
-                    hours_shifted = (time_diff / 3600) - time_shift_hours
-                    # Применяем сигмоидную функцию для плавного изменения штрафа
-                    time_penalty = 1.0 + expit(hours_shifted) * (
-                        time_penalty_modifier - 1.0
-                    )
-                    distances[i1, i2] = min(
-                        max_distance, distances[i1, i2] * time_penalty
-                    )
-
-        # Выполняем иерархическую кластеризацию
-        clustering = AgglomerativeClustering(**self.config["clustering"])
-        labels = clustering.fit_predict(distances).tolist()
-
-        # Группируем документы по кластерам
-        indices: List[List[int]] = [[] for _ in range(max(labels) + 1)]
-        for index, label in enumerate(labels):
-            indices[label].append(index)
-
-        # Создаем объекты кластеров и сохраняем информацию о расстояниях
+        # Формирование кластеров
         clusters = []
-        for doc_indices in indices:
-            cluster = Cluster()
-            for index in doc_indices:
-                cluster.add(docs[index])
-            # Сохраняем матрицу расстояний для документов внутри кластера
-            doc_indices_np = np.array(doc_indices)
-            cluster.save_distances(distances[doc_indices_np, doc_indices_np])
-            clusters.append(cluster)
+        unique_labels = set(labels)
+        current_time = datetime.now()
+        
+        for label in unique_labels:
+            cluster_df = df[labels == label]
+            if len(cluster_df) >= self.config.get('min_cluster_size', 2):
+                cluster_dict = {
+                    'news': cluster_df['news'].tolist(),
+                    'datetime': cluster_df['datetime'].tolist(),
+                    'channel_name': cluster_df['channel_name'].tolist(),
+                    'message_link': cluster_df['message_link'].tolist(),
+                    'create_time': current_time.isoformat(),
+                    'cluster_id': f"{cluster_df['datetime'].min()}_{label}"
+                }
+                
+                # Проверка на дубликаты
+                cluster_centroid = np.mean([json.loads(emb) for emb in cluster_df['embedding']], axis=0)
+                if not self.is_duplicate_cluster(cluster_centroid):
+                    clusters.append(cluster_dict)
+                    self.historical_centroids.append(cluster_centroid)
+                    self.historical_creation_times.append(current_time)
+
         return clusters
 
-    def find_image_duplicates(self, docs: List[Document]) -> Dict[int, int]:
-        """
-        Находит дубликаты изображений в документах
-        Args:
-            docs: список документов
-        Returns:
-            словарь соответствия индекса документа и метки кластера изображения
-        """
-        # Проверяем минимальное количество документов
-        if len(docs) < 2:
-            return dict()
+    def is_duplicate_cluster(self, centroid: np.ndarray, similarity_threshold: float = 0.9) -> bool:
+        """Проверка является ли кластер дубликатом"""
+        for hist_centroid in self.historical_centroids:
+            similarity = 1 - np.linalg.norm(centroid - hist_centroid)
+            if similarity >= similarity_threshold:
+                return True
+        return False
 
-        # Сбор эмбеддингов изображений и их привязка к документам
-        embeddings, image2doc = [], []
-        for i, doc in enumerate(docs):
-            for image in doc.embedded_images:
-                embeddings.append(image["embedding"])
-                image2doc.append(i)
+    def clean_historical_clusters(self, current_time: datetime) -> None:
+        """Очистка старых кластеров из истории"""
+        valid_indices = [
+            i for i, time in enumerate(self.historical_creation_times)
+            if (current_time - time).days <= self.max_history_days
+        ]
+        self.historical_centroids = [self.historical_centroids[i] for i in valid_indices]
+        self.historical_creation_times = [self.historical_creation_times[i] for i in valid_indices]
+
+def save_earliest_news_to_csv(clusters: List[Dict], output_file: str) -> None:
+    """
+    Сохранение самых ранних новостей из каждого кластера в CSV файл
+    Args:
+        clusters: список кластеров
+        output_file: путь к выходному CSV файлу
+    """
+    earliest_news = []
+    
+    for cluster in clusters:
+        # Создаем временный DataFrame для кластера
+        cluster_df = pd.DataFrame({
+            'datetime': pd.to_datetime(cluster['datetime']),
+            'channel_name': cluster['channel_name'],
+            'message_link': cluster['message_link'],
+            'news': cluster['news']
+        })
         
-        # Проверяем наличие изображений
-        if not image2doc:
-            return dict()
-        if len(embeddings) < 2:
-            return dict()
+        # Находим самую раннюю новость в кластере
+        earliest_idx = cluster_df['datetime'].idxmin()
+        earliest_news.append({
+            'datetime': cluster_df.loc[earliest_idx, 'datetime'],
+            'channel_name': cluster_df.loc[earliest_idx, 'channel_name'],
+            'message_link': cluster_df.loc[earliest_idx, 'message_link'],
+            'news': cluster_df.loc[earliest_idx, 'news']
+        })
+    
+    # Создаем DataFrame и сохраняем в CSV
+    if earliest_news:
+        result_df = pd.DataFrame(earliest_news)
+        result_df.sort_values('datetime', inplace=True)
+        result_df.to_csv(output_file, index=False, encoding='utf-8')
 
-        # Создаем матрицу эмбеддингов изображений
-        dim = len(embeddings[0])
-        np_embeddings = np.zeros((len(image2doc), dim), dtype=np.float32)
-        for i, embedding in enumerate(embeddings):
-            np_embeddings[i, :] = embedding
+def process_news_file(args):
+    """Основная функция обработки файла новостей"""
+    
+    logger.info("Начало обработки файла с новостями")
+    clusterer = Clusterer(args.config)
+    
+    df = pd.read_csv(args.csv_file)
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    df = df.sort_values('datetime')
+    logger.info(f"Загружено {len(df)} новостей за период {df['datetime'].min()} - {df['datetime'].max()}")
+    
+    window_size = timedelta(days=args.window_days)
+    window_step = timedelta(days=args.window_step)
+    
+    start_date = df['datetime'].min()
+    end_date = df['datetime'].max()
+    current_start = start_date
+    
+    all_clusters = []
+    
+    # Подсчет количества итераций для прогресс-бара
+    total_windows = int((end_date - start_date) / window_step) + 1
+    
+    # Создаем прогресс-бар
+    with tqdm(total=total_windows, desc="Обработка временных окон") as pbar:
+        while current_start <= end_date:
+            current_end = current_start + window_size
+            window_df = df[(df['datetime'] >= current_start) & (df['datetime'] < current_end)]
+            
+            clusters = clusterer.cluster_documents(window_df)
+            all_clusters.extend(clusters)
+            
+            clusterer.clean_historical_clusters(datetime.now())
+            current_start += window_step
+            pbar.update(1)
 
-        # Настраиваем и выполняем кластеризацию изображений
-        clustering = AgglomerativeClustering(
-            n_clusters=None,  # Автоматическое определение количества кластеров
-            affinity="cosine",  # Используем косинусное расстояние
-            linkage="average",  # Используем среднее расстояние между кластерами
-            distance_threshold=0.02,  # Порог расстояния для объединения кластеров
-        )
+    if args.output_dir and all_clusters:
+        os.makedirs(args.output_dir, exist_ok=True)
+        
+        # Сохранение всех кластеров в один JSON файл
+        all_clusters_file = os.path.join(args.output_dir, "all_clusters.json")
+        with open(all_clusters_file, 'w', encoding='utf-8') as f:
+            result = {
+                "total_clusters": len(all_clusters),
+                "clustering_date": datetime.now().isoformat(),
+                "window_size_days": args.window_days,
+                "window_step_days": args.window_step,
+                "clusters": all_clusters
+            }
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        logger.info(f"Найдено всего кластеров: {len(all_clusters)}")
+        logger.info(f"Результаты сохранены в директорию: {args.output_dir}")
+    
+    logger.info("Обработка файла завершена")
 
-        # Выполняем кластеризацию и создаем маппинг документ -> кластер изображения
-        labels = clustering.fit_predict(np_embeddings).tolist()
-        return {image2doc[i]: l for i, l in enumerate(labels)}
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Кластеризация новостей")
+    parser.add_argument("--input-path", type=str, 
+                      default="data/raw/news_with_emb.csv",
+                      help="Путь к CSV-файлу с новостями и эмбеддингами")
+    parser.add_argument("--config-path", type=str, 
+                      default="configs/clusterer_config.json",
+                      help="Путь к конфигурационному файлу")
+    parser.add_argument("--output-dir", type=str,
+                      default="data/raw",
+                      help="Директория для сохранения результатов")
+    parser.add_argument("--window-days", type=float, 
+                      default=2.0,
+                      help="Размер окна в днях")
+    parser.add_argument("--window-step", type=float, 
+                      default=1.0,
+                      help="Шаг окна в днях")
+    parser.add_argument("--dup-threshold", type=float, 
+                      default=0.9,
+                      help="Порог определения дубликатов")
+    
+    args = parser.parse_args()
+    
+    # Обновляем имена аргументов для совместимости с функцией process_news_file
+    args.csv_file = args.input_path
+    args.config = args.config_path
+    
+    process_news_file(args)
