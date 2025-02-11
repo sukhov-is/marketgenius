@@ -6,15 +6,20 @@
         "t.me/bcs_express" : "БКС Экспресс",
         "t.me/ifax_go" : "Интерфакс. Рынки",
         "t.me/Information_disclosure" : "Раскрытие корпоративной информации",
-        "t.me/bbbreaking" : "Раньше всех. Ну почти.",
-        "t.me/tass_agency" : "ТАСС",
-        "t.me/interfaxonline" : "Интерфакс",
+        "t.me/forbesrussia" : "Forbes Russia",
+        "t.me/if_market_news" : "IF News",
+        "t.me/finamnews" : "Финам.RU Новости компаний",
         "t.me/cbrstocks" : "Сигналы РЦБ",
         "t.me/headlines_for_traders" : "headlines",
         "t.me/finamalert" : "Финам Торговые сигналы",
-        "t.me/newsdarhan" : "D-News"
+        "t.me/investmint" : "ДИВИДЕНДЫ INVESTMINT",
+        "t.me/divonline" : "Дивиденды онлайн",
+        "t.me/cbonds" : "Cbonds.ru"
+        
     },
     "blogs": {
+        "t.me/profitanet" : "Профита нет. А если найду?",
+        "t.me/taurenin" : "TAUREN ИНВЕСТИЦИИ",
         "t.me/bitkogan" : "bitkogan",
         "t.me/thefinansist" : "НЕБАФФЕТТ",
         "t.me/MarketDumki" : "ФИНАНСОВЫЕ ДУМКИ",
@@ -34,6 +39,9 @@
         "t.me/frank_media" : "Frank Media",
         "t.me/antonchehovanalitk" : "Аналитика От Чехова",
         "t.me/finam_invest" : "Финам Инвестиции",
-        "t.me/moexwolf" : "Волк с Мосбиржи"
+        "t.me/moexwolf" : "Волк с Мосбиржи",
+        "t.me/InvestHeroes" : "Invest Heroes",
+        "t.me/div_invest" : "Инвестиции на диване",
+        "t.me/lemonfortea" : "Лимон на чай"
     }
 }

@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Dict, List
 
-import pandas as pd
+import pandas as pd32
 from dotenv import load_dotenv
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
