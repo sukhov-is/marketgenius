@@ -61,9 +61,9 @@ def main(**kwargs):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Обработка сообщений в CSV/TSV-файле.")
-    parser.add_argument("--input-path", type=str, default="data/external/news_tg_csv/telegram_news.сsv")
+    parser.add_argument("--input-path", type=str, default="data/100000_telegram_news.csv")
     parser.add_argument("--annotator-config", type=str, default="configs/annotator_config.json")
-    parser.add_argument("--output-path", type=str, default="data/raw/news_with_emb.csv")
+    parser.add_argument("--output-path", type=str, default="data/100000_with_emb.csv")
     
     args = parser.parse_args()
     main(**vars(args))
