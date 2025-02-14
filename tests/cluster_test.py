@@ -3,7 +3,7 @@ import json
 import os
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -12,6 +12,8 @@ from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import pairwise_distances
 from tqdm import tqdm
 from joblib import parallel_backend
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 
 # Настройка логирования
 logging.basicConfig(
@@ -29,19 +31,19 @@ class Clusterer:
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = json.load(f)
         
-        # История кластеров для отслеживания дубликатов
-        self.historical_centroids = []       # Список центроидов кластеров
-        self.historical_creation_times = []  # Время создания кластеров
-        self.historical_clusters = []        # Сами кластеры (словарь с данными)
-        self.max_history_days = self.config.get('max_history_days', 3)
-        
-        # Порог определения дубликатов (можно задать в конфиге)
-        self.dup_threshold = self.config.get('dup_threshold', 0.9)
+        # Инициализируем параметры кластеризации один раз
+        self.clustering_params = self.config.get("clustering", {}).copy()
+        self.clustering_params.update({
+            "metric": "precomputed",
+            "linkage": "average"
+        })
 
         # Параметры для вычисления расстояний
         self.same_channels_penalty = self.config['distances']['same_channels_penalty']
         self.time_penalty_modifier = self.config['distances']['time_penalty_modifier']
         self.time_shift_hours = self.config['distances']['time_shift_hours']
+
+        self.all_clusters = []  # Список для хранения всех кластеров
 
     def cluster_documents(self, df: pd.DataFrame) -> List[Dict]:
         """
@@ -51,28 +53,20 @@ class Clusterer:
         Returns:
             список кластеров в виде словарей
         """     
-        if len(df) < 5:
-            logger.debug(f"Пропуск окна: недостаточно новостей ({len(df)})")
-            return
-
-        if df.empty:
-            return
-
-        # Константы для ограничения расстояний
-        min_distance = 0.0
-        max_distance = 1.0
-
-        # Предварительно вычисляем эмбеддинги для всего датафрейма
-        embedding = np.array([json.loads(emb) for emb in df['embedding']])
+        if df.empty or len(df) < 5:
+            return []
         
-        # Вычисляем базовую матрицу расстояний (используем метрику cosine)
+        # Предварительно вычисляем эмбеддинги для всего датафрейма
+        embedding = np.vstack(df['embedding'].apply(json.loads).values)
+        
+        # Вычисляем базовую матрицу расстояний
         with parallel_backend('loky', n_jobs=-1):
             distances = pairwise_distances(embedding, metric="cosine")
         
         # Применяем штраф за одинаковые каналы
         same_channels = np.array([[1 if df.iloc[i]['channel_name'] == df.iloc[j]['channel_name'] 
                                 else 0 for j in range(len(df))] for i in range(len(df))])
-        distances = np.minimum(max_distance, 
+        distances = np.minimum(1.0, 
                             distances * (1 + (self.same_channels_penalty - 1) * same_channels))
 
         # Применяем временные штрафы
@@ -81,95 +75,50 @@ class Clusterer:
             time_diffs = np.abs(times - times.T) / np.timedelta64(1, 'h')
             hours_shifted = time_diffs - self.time_shift_hours
             time_penalties = 1.0 + expit(hours_shifted) * (self.time_penalty_modifier - 1.0)
-            distances = np.minimum(max_distance, distances * time_penalties)
+            distances = np.minimum(1.0, distances * time_penalties)
 
-        clustering_params = self.config.get("clustering", {}).copy()
-        clustering_params.update({
-            "metric": "precomputed",
-            "linkage": "average"
-        })
-
-        # Выполняем агломеративную кластеризацию
-        clustering = AgglomerativeClustering(**clustering_params)
+        # Используем предварительно настроенные параметры
+        clustering = AgglomerativeClustering(**self.clustering_params)
         labels = clustering.fit_predict(distances)
 
         clusters = []
         unique_labels = set(labels)
-        current_time = datetime.now()
         
         for label in unique_labels:
             cluster_df = df[labels == label]
-            # Преобразование столбца datetime в строковый формат ISO
-            datetimes_str = cluster_df['datetime'].apply(
-                lambda x: x.isoformat() if hasattr(x, 'isoformat') else str(x)
-            ).tolist()
-            # Получаем минимальную дату в виде строки
-            min_datetime = (cluster_df['datetime'].min().isoformat() 
-                            if hasattr(cluster_df['datetime'].min(), 'isoformat') 
-                            else str(cluster_df['datetime'].min()))
+            min_datetime = cluster_df['datetime'].min()
+            cluster_date = min_datetime.date()
+            datetimes_str = cluster_df['datetime'].apply(lambda x: x.isoformat())
             
             cluster_dict = {
                 'news': cluster_df['news'].tolist(),
-                'datetime': datetimes_str,
+                'datetime': datetimes_str.tolist(),
                 'channel_name': cluster_df['channel_name'].tolist(),
                 'message_link': cluster_df['message_link'].tolist(),
-                'create_time': current_time.isoformat(),
-                'cluster_id': f"{min_datetime}_{label}"
+                'cluster_date': cluster_date.isoformat(),
+                'cluster_id': f"{min_datetime.isoformat()}_{label}"
             }
             
-            # Вычисляем центроид кластера
-            cluster_centroid = np.mean([json.loads(emb) for emb in cluster_df['embedding']], axis=0)
-            # Проверяем, является ли этот кластер дубликатом ранее найденного
-            dup_index = self.find_duplicate_cluster(cluster_centroid, self.dup_threshold)
-            if dup_index is None:
-                clusters.append(cluster_dict)
-                self.historical_clusters.append(cluster_dict)
-                self.historical_centroids.append(cluster_centroid)
-                self.historical_creation_times.append(current_time)
-            else:
-                existing_cluster = self.historical_clusters[dup_index]
-                existing_cluster['news'].extend(cluster_dict['news'])
-                existing_cluster['datetime'].extend(cluster_dict['datetime'])
-                existing_cluster['channel_name'].extend(cluster_dict['channel_name'])
-                existing_cluster['message_link'].extend(cluster_dict['message_link'])
-                logger.info(f"Объединение кластера {cluster_dict['cluster_id']} с существующим кластером {existing_cluster['cluster_id']}")
-        
+            clusters.append(cluster_dict)
+            self.all_clusters.append(cluster_dict)
+
         return clusters
 
-    def find_duplicate_cluster(self, centroid: np.ndarray, similarity_threshold: float = 0.9):
+    def get_all_clusters(self) -> List[Dict]:
+        """Получить все кластеры"""
+        return self.all_clusters
+
+    def process_window(self, window_data: pd.DataFrame) -> List[Dict]:
         """
-        Поиск дублирующегося кластера по центроиду с использованием косинусной схожести.
-        Возвращает индекс найденного дубликата в истории или None, если дубликат не найден.
+        Обработка одного временного окна
+        Args:
+            window_data: DataFrame с данными для окна
+        Returns:
+            список кластеров
         """
-        # Нормализуем входной вектор (центроид нового кластера)
-        norm = np.linalg.norm(centroid)
-        if norm == 0:
-            # Если норма равна нулю, невозможно вычислить косинусную схожесть
-            return None
-        centroid_normalized = centroid / norm
-
-        for i, hist_centroid in enumerate(self.historical_centroids):
-            hist_norm = np.linalg.norm(hist_centroid)
-            if hist_norm == 0:
-                continue  # Пропускаем, если исторический центроид имеет нулевую норму
-            hist_centroid_normalized = hist_centroid / hist_norm
-
-            # Вычисляем косинусную схожесть как скалярное произведение нормализованных векторов
-            similarity = np.dot(centroid_normalized, hist_centroid_normalized)
-
-            if similarity >= similarity_threshold:
-                return i
-        return None
-
-    def clean_historical_clusters(self, current_time: datetime) -> None:
-        """Очистка старых кластеров из истории"""
-        valid_indices = [
-            i for i, time in enumerate(self.historical_creation_times)
-            if (current_time - time).days <= self.max_history_days
-        ]
-        self.historical_centroids = [self.historical_centroids[i] for i in valid_indices]
-        self.historical_creation_times = [self.historical_creation_times[i] for i in valid_indices]
-        # self.historical_clusters = [self.historical_clusters[i] for i in valid_indices]
+        if window_data.empty:
+            return []
+        return self.cluster_documents(window_data)
 
 def save_earliest_news_to_csv(clusters: List[Dict], output_file: str) -> None:
     """
@@ -178,113 +127,136 @@ def save_earliest_news_to_csv(clusters: List[Dict], output_file: str) -> None:
         clusters: список кластеров
         output_file: путь к выходному CSV файлу
     """
-    earliest_news = []
-    
-    for cluster in clusters:
-        # Создаем временный DataFrame для кластера
-        cluster_df = pd.DataFrame({
-            'datetime': pd.to_datetime(cluster['datetime']),
-            'channel_name': cluster['channel_name'],
-            'message_link': cluster['message_link'],
-            'news': cluster['news']
-        })
+    if not clusters:
+        return
         
-        # Находим самую раннюю новость в кластере
-        earliest_idx = cluster_df['datetime'].idxmin()
-        earliest_news.append({
-            'datetime': cluster_df.loc[earliest_idx, 'datetime'],
-            'channel_name': cluster_df.loc[earliest_idx, 'channel_name'],
-            'message_link': cluster_df.loc[earliest_idx, 'message_link'],
-            'news': cluster_df.loc[earliest_idx, 'news']
-        })
+    # Создаем DataFrame сразу для всех кластеров
+    all_news = pd.DataFrame({
+        'datetime': [pd.to_datetime(cluster['datetime'][0]) for cluster in clusters],
+        'channel_name': [cluster['channel_name'][0] for cluster in clusters],
+        'message_link': [cluster['message_link'][0] for cluster in clusters],
+        'news': [cluster['news'][0] for cluster in clusters],
+        'cluster_id': [cluster['cluster_id'] for cluster in clusters]
+    })
     
-    # Создаем DataFrame и сохраняем в CSV
-    if earliest_news:
-        result_df = pd.DataFrame(earliest_news)
-        result_df.sort_values('datetime', inplace=True)
-        result_df.to_csv(output_file, index=False, encoding='utf-8')
+    # Сортируем по времени и сохраняем
+    all_news.sort_values('datetime', inplace=True)
+    all_news.to_csv(output_file, index=False, encoding='utf-8')
 
 def process_news_file(args):
     logger.info("Начало обработки файла с новостями")
     clusterer = Clusterer(args.config)
-    if hasattr(args, 'dup_threshold'):
-        clusterer.dup_threshold = args.dup_threshold
+    max_workers = min(os.cpu_count(), 8)  # Ограничиваем количество потоков
 
-    # Задаем размер чанка
-    chunksize = 20000
-    all_clusters = []
+    # Задаем размер чанка и инициализируем буфер
+    chunksize = 6000
     buffer_df = pd.DataFrame()
-
-    # Читаем CSV по частям. Добавляем счетчик чанков для отображения в прогресс-баре.
-    for chunk_idx, chunk in enumerate(pd.read_csv(args.csv_file, chunksize=chunksize), start=1):
-        # Приводим дату к нужному типу и сортируем по времени
-        chunk['datetime'] = pd.to_datetime(chunk['datetime'])
-        chunk = chunk.sort_values('datetime')
-
-        # Объединяем с данными из предыдущего чанка (если они есть)
-        if not buffer_df.empty:
-            chunk = pd.concat([buffer_df, chunk])
-        
-        start_date = chunk['datetime'].min().normalize()
-        end_date = chunk['datetime'].max()
-        window_size = timedelta(days=args.window_days)
-        window_step = timedelta(days=args.window_step)
-        current_start = start_date
-        last_window_end = None
-
-        # Вычисляем общее количество окон в данном чанке
-        total_windows = int((end_date - start_date) / window_step) + 1
-
-        # Создаем прогресс-бар для окон в текущем чанке
-        with tqdm(total=total_windows, desc=f"Обработка окон в чанке {chunk_idx}") as pbar:
-            for _ in range(total_windows):
+    
+    # Читаем первый чанк для определения общего количества строк
+    total_rows = sum(1 for _ in open(args.csv_file, encoding='utf-8')) - 1
+    total_chunks = (total_rows + chunksize - 1) // chunksize
+    
+    logger.info(f"Всего строк для обработки: {total_rows}")
+    
+    # Создаем основной прогресс-бар для чанков
+    with tqdm(total=total_chunks, desc="Обработка чанков") as chunk_pbar:
+        for chunk_idx, chunk in enumerate(pd.read_csv(args.csv_file, chunksize=chunksize, encoding='utf-8'), start=1):  # добавляем encoding='utf-8'
+            logger.debug(f"Обработка чанка {chunk_idx}/{total_chunks}")
+            
+            # Приводим дату к нужному типу
+            chunk['datetime'] = pd.to_datetime(chunk['datetime'])
+            
+            # Объединяем с данными из буфера
+            if not buffer_df.empty:
+                chunk = pd.concat([buffer_df, chunk])
+                chunk = chunk.sort_values('datetime')
+            
+            # Определяем временные границы для текущего чанка
+            start_date = chunk['datetime'].min().normalize()
+            end_date = chunk['datetime'].max()
+            window_size = timedelta(days=args.window_days)
+            window_step = timedelta(days=args.window_step)
+            
+            # Определяем последнее полное окно в текущем чанке
+            last_complete_window = end_date - window_size
+            
+            # Обрабатываем полные окна
+            current_start = start_date
+            window_data = []
+            
+            # Собираем данные для всех окон
+            while current_start <= last_complete_window:
                 current_end = current_start + window_size
-                # Выбираем новости, попадающие в текущее окно
-                window_df = chunk[(chunk['datetime'] >= current_start) & (chunk['datetime'] < current_end)]
+                window_df = chunk[
+                    (chunk['datetime'] >= current_start) & 
+                    (chunk['datetime'] < current_end)
+                ]
                 if not window_df.empty:
-                    clusters = clusterer.cluster_documents(window_df)
-                    all_clusters.extend(clusters)
-                    last_window_end = current_end
+                    window_data.append((current_start, window_df))
                 current_start += window_step
-                pbar.update(1)
 
-        # Буферизуем строки, относящиеся к незавершенному окну, для обработки в следующем чанке
-        if last_window_end is not None:
-            buffer_df = chunk[chunk['datetime'] >= last_window_end].copy()
-        else:
-            buffer_df = chunk.copy()
-
-    # Обрабатываем оставшиеся данные из буфера, если они есть
+            # Параллельная обработка окон
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_window = {
+                    executor.submit(clusterer.process_window, window_df): start_time 
+                    for start_time, window_df in window_data
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_window):
+                    start_time = future_to_window[future]
+                    try:
+                        clusters = future.result()
+                        if clusters:
+                            logger.debug(f"Обработано окно, начинающееся с {start_time}, найдено {len(clusters)} кластеров")
+                    except Exception as e:
+                        logger.error(f"Ошибка при обработке окна {start_time}: {str(e)}")
+            
+            # Определяем данные для буфера (все записи после последнего полного окна)
+            if current_start is not None:  # если были обработаны какие-то окна
+                buffer_df = chunk[chunk['datetime'] >= current_start].copy()
+            else:
+                buffer_df = chunk.copy()
+            
+            chunk_pbar.update(1)
+    
+    # Обрабатываем оставшиеся данные в буфере
     if not buffer_df.empty:
+        logger.info(f"Обработка оставшихся {len(buffer_df)} записей из буфера")
         clusters = clusterer.cluster_documents(buffer_df)
-        all_clusters.extend(clusters)
-
+        if clusters:
+            logger.debug(f"Найдено {len(clusters)} кластеров в финальном буфере")
+    
     # Сохранение результатов
-    if args.output_dir and all_clusters:
+    if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
         all_clusters_file = os.path.join(args.output_dir, "all_clusters.json")
+        
+        # Получаем все кластеры
+        final_clusters = clusterer.get_all_clusters()
+        
         with open(all_clusters_file, 'w', encoding='utf-8') as f:
             result = {
-                "total_clusters": len(all_clusters),
+                "total_clusters": len(final_clusters),
                 "clustering_date": datetime.now().isoformat(),
                 "window_size_days": args.window_days,
                 "window_step_days": args.window_step,
-                "clusters": all_clusters
+                "clusters": final_clusters
             }
             json.dump(result, f, ensure_ascii=False, indent=2)
-        logger.info(f"Найдено всего кластеров: {len(all_clusters)}")
+        
+        logger.info(f"Найдено всего кластеров: {len(final_clusters)}")
         logger.info(f"Результаты сохранены в директорию: {args.output_dir}")
 
         csv_output_file = os.path.join(args.output_dir, "earliest_news.csv")
-        save_earliest_news_to_csv(all_clusters, csv_output_file)
+        save_earliest_news_to_csv(final_clusters, csv_output_file)
         logger.info(f"CSV файл с самыми ранними новостями сохранен в {csv_output_file}")
-
+    
     logger.info("Обработка файла завершена")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Кластеризация новостей")
     parser.add_argument("--input-path", type=str, 
-                      default="data/100000_with_emb.csv",
+                      default="data/30000_with_emb.csv",
                       help="Путь к CSV-файлу с новостями и эмбеддингами")
     parser.add_argument("--config-path", type=str, 
                       default="configs/clusterer_config.json",

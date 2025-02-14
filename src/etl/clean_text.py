@@ -36,7 +36,7 @@ def main(input_path, annotator_config):
     text_processor = TextProcessor(config["text_processor"])
 
     # Определяем разделитель на основе расширения файла
-    separator = "\t" if input_path.endswith(".csv") else ","
+    separator = "\t" if input_path.endswith(".tsv") else ","
     
     # Загрузка файла с соответствующим разделителем
     df = pd.read_csv(input_path, encoding="utf-8", sep=separator)
@@ -59,7 +59,7 @@ def main(input_path, annotator_config):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Обработка сообщений в CSV-файле.")
-    parser.add_argument("--input-path", type=str, default="data/external/news_tg_csv/telegram_news.сsv")
+    parser.add_argument("--input-path", type=str, default="data/raw/news_with_emb.csv")
     parser.add_argument("--annotator-config", type=str, default="configs/annotator_config.json")
 
     args = parser.parse_args()

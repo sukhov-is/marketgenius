@@ -10,7 +10,7 @@
         "time_penalty_modifier": 4.0,
         "image_penalty_modifier": 1.0,
         "image_bonus": 0.5,
-        "time_shift_hours": 6,
+        "time_shift_hours": 8,
         "no_time_penalty_issues": ["tech", "economy"]
     }
 }
