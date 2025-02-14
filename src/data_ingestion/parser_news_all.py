@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Dict, List
+import argparse
 
 import pandas as pd32
 from dotenv import load_dotenv
@@ -53,9 +54,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def load_channels() -> Dict[str, str]:
+def load_channels(content_type: str) -> Dict[str, str]:
     """
     Загружает конфигурацию каналов из JSON-файла.
+    
+    Args:
+        content_type (str): Тип контента ('news' или 'blogs')
     
     Returns:
         Dict[str, str]: Словарь, где ключ - ссылка на канал, значение - название канала
@@ -63,29 +67,32 @@ def load_channels() -> Dict[str, str]:
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             config = json.load(f)
-        return config.get("news", {})
+        return config.get(content_type, {})
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.error(f"Ошибка загрузки конфигурации каналов: {e}")
         return {}
 
-class TelegramNewsParser:
-    def __init__(self, session_name: str, api_id: str, api_hash: str, phone: str):
+class TelegramParser:
+    def __init__(self, session_name: str, api_id: str, api_hash: str, phone: str, content_type: str):
         """
-        Инициализация парсера новостей Telegram.
+        Инициализация парсера Telegram.
 
         Args:
             session_name (str): Имя сессии
             api_id (str): API ID от Telegram
             api_hash (str): API Hash от Telegram
             phone (str): Номер телефона для аутентификации
+            content_type (str): Тип контента ('news' или 'blogs')
         """
         self.session_name = session_name
         self.api_id = api_id
         self.api_hash = api_hash
         self.phone = phone
+        self.content_type = content_type
         self.client = None
         self.messages: List[Dict] = []
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+        self.session_file = f"{session_name}.session"  # Добавляем путь к файлу сессии
 
     async def init_client(self) -> None:
         """Инициализация клиента с повторными попытками"""
@@ -196,17 +203,30 @@ class TelegramNewsParser:
 
         return df
 
+    async def cleanup(self) -> None:
+        """Очистка ресурсов и удаление файла сессии"""
+        if self.client:
+            await self.client.disconnect()
+            logger.info("Клиент Telegram отключен")
+        
+        if os.path.exists(self.session_file):
+            try:
+                os.remove(self.session_file)
+                logger.info(f"Файл сессии {self.session_file} удален")
+            except Exception as e:
+                logger.error(f"Ошибка при удалении файла сессии: {e}")
+
     async def run(self) -> None:
         """Основной метод запуска парсера"""
         try:
             await self.init_client()
-            channels = load_channels()
+            channels = load_channels(self.content_type)
 
             if not channels:
                 logger.error("Не найдены каналы для обработки")
                 return
 
-            logger.info(f"Начало обработки {len(channels)} каналов")
+            logger.info(f"Начало обработки {len(channels)} каналов типа {self.content_type}")
 
             # Создаем пул задач с ограничением количества одновременных задач
             tasks = []
@@ -221,8 +241,9 @@ class TelegramNewsParser:
             # Сохранение результатов
             df = self._prepare_dataframe()
             if not df.empty:
-                output_path = "data/external/news_tg_csv/telegram_news.сsv"
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)  # Создаем директорию, если её нет
+                filename = "blogs.csv" if self.content_type == "blogs" else "telegram_news.csv"
+                output_path = f"data/external/news_tg_csv/{filename}"
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 df.to_csv(output_path, index=False)
                 logger.info(f"Данные сохранены в файле {output_path}")
             else:
@@ -233,20 +254,49 @@ class TelegramNewsParser:
             raise
 
         finally:
-            if self.client:
-                await self.client.disconnect()
-                logger.info("Клиент Telegram отключен")
+            await self.cleanup()  # Заменяем старый код отключения на новый метод cleanup
 
 async def main():
     """Точка входа в программу"""
+    parser = argparse.ArgumentParser(description="Парсер Telegram каналов")
+    parser.add_argument(
+        "--content-type",
+        type=str,
+        choices=["news", "blogs", "all"],
+        help="Тип контента для загрузки (news, blogs или all)"
+    )
+    args = parser.parse_args()
+
+    content_type = args.content_type
+    if not content_type:
+        while True:
+            user_input = input("Выберите тип контента для загрузки (n/b/a - news/blogs/all): ").lower()
+            if user_input in ['n', 'b', 'a']:
+                content_type = {'n': 'news', 'b': 'blogs', 'a': 'all'}[user_input]
+                break
+            print("Неверный ввод. Пожалуйста, используйте n, b или a.")
+
     try:
-        parser = TelegramNewsParser(
-            session_name=session_name,
-            api_id=API_ID,
-            api_hash=API_HASH,
-            phone=PHONE
-        )
-        await parser.run()
+        if content_type in ["news", "all"]:
+            news_parser = TelegramParser(
+                session_name=session_name,
+                api_id=API_ID,
+                api_hash=API_HASH,
+                phone=PHONE,
+                content_type="news"
+            )
+            await news_parser.run()
+
+        if content_type in ["blogs", "all"]:
+            blogs_parser = TelegramParser(
+                session_name=session_name,
+                api_id=API_ID,
+                api_hash=API_HASH,
+                phone=PHONE,
+                content_type="blogs"
+            )
+            await blogs_parser.run()
+
     except Exception as e:
         logger.critical(f"Программа завершилась с ошибкой: {e}")
         raise
