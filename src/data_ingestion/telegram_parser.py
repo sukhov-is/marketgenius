@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, List
 import argparse
 
-import pandas as pd32
+import pandas as pd
 from dotenv import load_dotenv
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
@@ -140,7 +140,8 @@ class TelegramParser:
                             'channel_name': channel_name,
                             'channel_link': channel_link,
                             'message_id': message.id,
-                            'news': message.message
+                            'news': message.message,
+                            'views': getattr(message, 'views', 0)  # Добавляем количество просмотров
                         })
                         message_count += 1
 
@@ -198,7 +199,7 @@ class TelegramParser:
 
         # Очистка и сортировка DataFrame
         df.drop(columns=['channel_link', 'message_id'], inplace=True)
-        df = df[['datetime', 'channel_name', 'message_link', 'news']]
+        df = df[['datetime', 'channel_name', 'message_link', 'views', 'news']]  # Добавляем 'views' в список столбцов
         df.sort_values(by='datetime', inplace=True)
 
         return df
