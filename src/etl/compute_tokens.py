@@ -68,8 +68,8 @@ def main(**kwargs):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Токенизация сообщений в CSV/TSV-файле.")
-    parser.add_argument("--input-path", type=str, default="data/external/news_tg_csv/blogs.csv")
-    parser.add_argument("--output-path", type=str, default="data/raw/blogs_with_tokens.csv")
+    parser.add_argument("--input-path", type=str, default="data/raw/earliest_news.csv")
+    parser.add_argument("--output-path", type=str, default="data/raw/news_with_tokens.csv")
     parser.add_argument("--news-column", type=str, default="news")
     
     args = parser.parse_args()
