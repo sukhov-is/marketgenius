@@ -14,9 +14,12 @@
         "t.me/finamalert" : "Финам Торговые сигналы",
         "t.me/investmint" : "ДИВИДЕНДЫ INVESTMINT",
         "t.me/divonline" : "Дивиденды онлайн",
-        "t.me/cbonds" : "Cbonds.ru"
-        
+        "t.me/cbonds" : "Cbonds.ru",
+        "t.me/frank_media" : "Frank Media",
+        "t.me/fm_invest" : "Frank Media Invest"
+
     },
+
     "blogs": {
         "t.me/profitanet" : "Профита нет. А если найду?",
         "t.me/taurenin" : "TAUREN ИНВЕСТИЦИИ",
@@ -36,7 +39,6 @@
         "t.me/SberInvestments" : "СберИнвестиции",
         "t.me/t_analytics_official" : "Аналитика Т-Инвестиций",
         "t.me/alfa_investments" : "Альфа-Инвестиции",
-        "t.me/frank_media" : "Frank Media",
         "t.me/antonchehovanalitk" : "Аналитика От Чехова",
         "t.me/finam_invest" : "Финам Инвестиции",
         "t.me/moexwolf" : "Волк с Мосбиржи",

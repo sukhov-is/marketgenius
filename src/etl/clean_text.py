@@ -29,15 +29,10 @@ def process_messages(df, text_processor):
     df = df[df["news"].str.strip() != ""]
     empty_messages_removed = before_removal - len(df)
 
-    # Удаление дубликатов
-    before_duplicates = len(df)
-    df = df.drop_duplicates(subset=["news"])
-    duplicates_removed = before_duplicates - len(df)
-
-    return df, empty_messages_removed, duplicates_removed, date_filtered
+    return df, empty_messages_removed, date_filtered
 
 
-def main(input_path, annotator_config):
+def main(input_path, output_path, annotator_config):
     """Основная функция обработки CSV/TSV-файла."""
     # Загрузка конфигурации
     config = load_config(annotator_config)
@@ -54,21 +49,24 @@ def main(input_path, annotator_config):
         raise ValueError("В файле отсутствует столбец 'news'.")
 
     # Обработка сообщений
-    df, empty_messages_removed, duplicates_removed, date_filtered = process_messages(df, text_processor)
+    df, empty_messages_removed, date_filtered = process_messages(df, text_processor)
 
-    # Перезапись оригинального файла с тем же разделителем
-    df.to_csv(input_path, index=False, encoding="utf-8", sep=separator)
+    # Определяем разделитель для выходного файла на основе его расширения
+    output_separator = "\t" if output_path.endswith(".tsv") else ","
+    
+    # Сохранение в новый файл
+    df.to_csv(output_path, index=False, encoding="utf-8", sep=output_separator)
 
     # Вывод статистики
-    print(f"Файл успешно обработан и сохранен в {input_path} (оригинальный файл заменен).")
+    print(f"Файл успешно обработан и сохранен в {output_path}.")
     print(f"Удалено записей с датой ранее 01.02.2019: {date_filtered}")
     print(f"Удалено пустых сообщений: {empty_messages_removed}")
-    print(f"Удалено дубликатов: {duplicates_removed}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Обработка сообщений в CSV-файле.")
-    parser.add_argument("--input-path", type=str, default="data/external/news_tg_csv/blogs.csv")
+    parser.add_argument("--input-path", type=str, default="data/external/news_tg_csv/telegram_news.csv")
+    parser.add_argument("--output-path", type=str, default="data/raw/news_filtred.csv")
     parser.add_argument("--annotator-config", type=str, default="configs/annotator_config.json")
 
     args = parser.parse_args()

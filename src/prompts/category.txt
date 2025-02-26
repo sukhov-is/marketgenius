@@ -1,0 +1,170 @@
+Identify a correct category of a text. The text will be in Russian.
+
+List of categories:
+- "not_market_related": News that does not affect the stock market MOEX: advertising, PR, charity, cultural events, neutral news, sport, crypto, war, etc
+- "politics": News related to domestic and foreign policy, including statements by government officials, diplomatic relations, international conflicts, sanctions, elections, legislative initiatives, government reforms, and political events affecting countries or international organizations
+- "macro_economy": News related to macroeconomics, including economic indicators (GDP, inflation, unemployment), government budget and taxation, monetary policy, central bank decisions, international trade, financial crises, economic sanctions, and global economic trends
+
+Categories for news that affect the industry directly or indirectly:
+- "MOEXCN": Сonsumer sector industry
+- "MOEXIT": Information technology (IT) industry
+- "MOEXRE": Construction companies industry
+- "MOEXEU": Electric power industry
+- "MOEXFN": Financial industry
+- "MOEXMM": Rare earth metals industry
+- "OIL": Oil industry
+- "GAS": Gas industry
+- "MOEXTL": Telecommunications industry
+- "MOEXTN": Transport industry
+- "MOEXCH": Chemical and petrochemical industries
+
+Categories for news that affect the company directly or indirectly:
+- "MSNG": +МосЭнерго (ОАО «Мосэнерго», Московская энергетическая компания)
+- "DATA": iАренадата (Arenadata, ООО «Аренадата Софтвер», ПАО «Группа Аренадата»)
+- "WUSH": iВУШХолднг (ПАО «Вуш Холдинг», ООО «Вуш», Whoosh)
+- "DIAS": iДиасофт (ООО «Диасофт», Diasoft)
+- "IVAT": iИВА (IVA Technologies, ПАО «ИВА», ООО «ИВКС»)
+- "DELI": iКаршеринг (Делимобиль, ООО «Каршеринг Руссия»)
+- "POSI": iПозитив (POSI, Позитив Текнолоджиз, Positive Technologies, АО «Позитив Текнолоджиз», ПАО «Группа Позитив»)
+- "SOFL": Софтлайн (Софтлайн, ПАО «Софтлайн», Softline)
+- "MDMG": MDMG (MD Medical Group, МКПАО «МД Медикал Груп», Группа компаний «Мать и дитя»)
+- "AKRN": Акрон
+- "ALRS": АЛРОСА
+- "APTK": Аптеки36и6 (Аптечная сеть 36,6)
+- "ASTR": Астра (AstraLinux)
+- "AFLT": Аэрофлот
+- "BANE": Башнефть
+- "BSPB": БСП (Банк Санкт-Петербург)
+- "VSEH": ВИ.ру (ВсеИнструменты.ру)
+- "VSMO": ВСМПО-АВСМ (ВСМПО-АВИСМА)
+- "VTBR": ВТБ ао (Банк ВТБ, VTB)
+- "GAZP": ГАЗПРОМ (Газон, Gazprom)
+- "GMKN": ГМКНорНик (Норникель, ГМК Норильский Никель)
+- "FESH": ДВМП (Дальневосточное морское пароходство)
+- "DVEC": ДЭК (Дальневосточная энергетическая компания)
+- "LEAS": Европлан 
+- "EUTR": ЕвроТранс (бренд «ТРАССА»)
+- "ZAYM": Займер
+- "AQUA": ИНАРКТИКА
+- "IRAO": ИнтерРАО
+- "LENT": Лента
+- "LSRG": ЛСР
+- "LKOH": ЛУКОЙЛ
+- "MVID": М.видео
+- "MGNT": Магнит
+- "MGTS": МГТС
+- "MTLR": Мечел
+- "CBOM": МКБ (Московский кредитный банк)
+- "VKCO": МКПАО ВК (Вконтакте, vk.ru, VK)
+- "GEMC": МКПАО ЮМГ (Юнайтед Медикал Груп, АО «Европейский медицинский центр» (ЕМЦ, EMC) и ООО «Социальная служба Помощник»)
+- "MAGN": ММК (МАГНИТОГОРСКИЙ МЕТАЛЛУРГИЧЕСКИЙ КОМБИНАТ)
+- "MOEX": МосБиржа (МОСКОВСКАЯ БИРЖА ММВБ-РТС)
+- "MBNK": МТС Банк
+- "MTSS": МТС-ао
+- "NKNC": НКНХ (Нижнекамскнефтехим)
+- "NLMK": НЛМК (Новолипецкий металлургический комбинат)
+- "NMTP": НМТП (Новороссийский морской торговый порт)
+- "BELU": НоваБев (БЕЛУГА ГРУПП, beluga)
+- "NVTK": Новатэк
+- "OGKB": ОГК-2 (Оптовая генерирующая компания №2)
+- "OZPH": ОзонФарм
+- "KZOS": ОргСинт (Казаньоргсинтез, КПАО "Органический синтез")
+- "PIKK": ПИК (ПИК-специализированный застройщик)
+- "PLZL": Полюс
+- "PRMD": ПРОМОМЕД (Promomed PJSC)
+- "RASP": Распадская ("ТПТУ", ЗАО "РУК", ОАО "МУК-96", ЗАО "Разрез Распадский", ООО "Распадский уголь")
+- "RENI": Ренессанс (ГРУППА РЕНЕССАНС СТРАХОВАНИЕ)
+- "ROSN": Роснефть
+- "FEES": Россети (ФЕДЕРАЛЬНАЯ СЕТЕВАЯ КОМПАНИЯ ЕДИНОЙ ЭНЕРГЕТИЧЕСКОЙ СИСТЕМЫ)
+- "MRKU": Россети Урал (Россети Ур)
+- "MRKC": РоссЦентр (Россети Центр)
+- "RTKM": Ростел (Ростелеком)
+- "MRKV": РсетВол (Россети Волга)
+- "MSRS": РСетиМР (Россети Московский регион)
+- "MRKP": РСетиЦП (Россети Центр и Приволжье)
+- "RUAL": РУСАЛ (ОК РУСАЛ МКПАО)
+- "HYDR": РусГидро
+- "RNFT": РуссНфт (РуссНефть)
+- "SMLT": Самолет (ГРУППА КОМПАНИЙ "САМОЛЕТ)
+- "SBER": Сбер (Сбербанк)
+- "CHMF": СевСт (Северсталь)
+- "SGZH": Сегежа
+- "SELG": Селигдар
+- "AFKS": Система 
+- "SVCB": Совкомбанк
+- "FLOT": Совкомфлот
+- "SVAV": СОЛЛЕРС (СОЛЛЕРС АВТО)
+- "SPBE": СПБ Биржа (Санкт-Петербургская биржа)
+- "SNGS": Сургнфгз (Сургутнефтегаз)
+- "T": Т-Техно (Т-Технологии, Тиньк, Тинькоф)
+- "TATN": Татнфт (Татнефть)
+- "TGKA": ТГК-1 (Территор. генерирующая компания № 1)
+- "TGKB": ТГК-2 (Территор. генерирующая компания № 2)
+- "TRMK": ТМК (Трубная металлургическая компания)
+- "PHOR": ФосАгро
+- "HEAD": Хэдхантер (hh, hh.ru
+- "HNFG": ХЭНДЕРСОН (Хэндерсон Фэшн Групп)
+- "ELFV": ЭЛ5Энер (ЭЛ5-Энерго)
+- "SFIN": ЭН+ГРУП (ЭсЭфАй, САФМАР ФИНАНСОВЫЕ ИНВЕСТИЦИИ)
+- "UGLD": ЮГК (Южуралзолото Группа Компаний, Южуралзолото)
+- "UPRO": Юнипро
+- "YDEX": ЯНДЕКС
+
+You must classify the news into one or more relevant categories based on its impact. 
+Choose the most precise category or categories that the news affects directly or indirectly. 
+If multiple categories apply, list all relevant ones.
+You should only use categories from the list above.
+Try to be as precise as possible.
+First explain your choice, then answer.
+
+###
+
+Text: "Газпром" объявил о сокращении поставок газа в Европу из-за технических проблем на компрессорной станции.
+Answer: News about Gazprom's export contract, so ["GAZP"]
+
+
+Text: Сбербанк представил новую линейку цифровых сервисов для малого и среднего бизнеса.
+Answer: News about Sberbank’s new services, so ["SBER"]
+
+
+Text: "Лукойл" и "Роснефть" договорились о совместной разработке нового нефтяного месторождения в Арктике.
+Answer: News about a collaboration between Lukoil and Rosneft, so ["LKOH", "ROSN"]
+
+
+Text: Евросоюз рассматривает новые санкции против "Газпрома", включая ограничения на экспорт газа в страны ЕС.
+Answer: News about political sanctions affecting Gazprom, so ["politics", "GAZP"]
+
+Text: В Москве открылась выставка современного искусства, посвященная технологическим инновациям.
+Answer: This is a cultural event, so ["not_market_related"]
+
+Text: Binance запустила новую рекламную кампанию, объясняющую основы криптовалют для начинающих пользователей.
+Answer: News about crypto market, so ["not_market_related"]
+
+
+Text: Авиакомпании России увеличили внутренние рейсы из-за сокращения международных направлений.
+Answer: News about trends in the transportation sector, so ["MOEXTN"]
+
+
+Text: Цена нефти Brent превысила $90 за баррель на фоне роста спроса в Китае.
+Answer: News about oil price changes, so ["OIL"]
+
+###
+
+
+Text: {{«Яндекс» = +1% 
+Мечел = +1% 
+Промомед = -1% 
+Netease = -3% 
+Bilibili  = +11% 
+EPAM Systems = -2% 
+Alibaba = +10% 
+Utz Brands = +1% 
+Hasbro = +4% 
+Cameco = +2% 
+Wallmart = -5% 
+Wayfair = +7% 
+Shake Shack  = +13% 
+Trip Advisor = -7% 
+Unity = +2% 
+Booking = -1%}}
+Answer:

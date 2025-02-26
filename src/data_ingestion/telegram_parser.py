@@ -18,8 +18,8 @@ API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 PHONE = os.getenv('PHONE')
 
-# Параметры сессии
-session_name = 'Load_news'
+# Параметры сессии (базовое имя)
+session_base_name = 'Load'
 
 # Параметры клиента Telethon
 client_kwargs = {
@@ -34,6 +34,7 @@ client_kwargs = {
 BATCH_SIZE = 100  # Размер пакета сообщений
 WAIT_TIME = 2     # Задержка между запросами (в секундах)
 MAX_CONCURRENT_TASKS = 3  # Максимальное количество одновременных задач
+MAX_RETRIES = 3 # Максимальное количество попыток для каждого канала
 
 # Пути к файлам
 CONFIG_FILE = "configs/channels_config.json"
@@ -115,19 +116,23 @@ class TelegramParser:
 
     async def process_channel(self, channel_link: str, channel_name: str) -> None:
         """
-        Обработка одного канала с механизмом повторных попыток.
+        Обработка одного канала с механизмом повторных попыток и адаптивными паузами.
 
         Args:
             channel_link (str): Ссылка на канал
             channel_name (str): Название канала
         """
-        max_retries = MAX_CONCURRENT_TASKS
+        max_retries = MAX_RETRIES
+        current_wait_time = WAIT_TIME  # Начальное значение паузы
+        consecutive_errors = 0
+        
         for attempt in range(max_retries):
             try:
                 logger.info(f"Начало обработки канала: {channel_name}")
                 entity = await self.client.get_entity(channel_link)
                 message_count = 0
                 batch = []
+                error_count = 0
 
                 async for message in self.client.iter_messages(
                     entity,
@@ -141,7 +146,7 @@ class TelegramParser:
                             'channel_link': channel_link,
                             'message_id': message.id,
                             'news': message.message,
-                            'views': getattr(message, 'views', 0)  # Добавляем количество просмотров
+                            'views': getattr(message, 'views', 0)
                         })
                         message_count += 1
 
@@ -152,7 +157,14 @@ class TelegramParser:
                                 batch = []
                                 if message_count % 5000 == 0:
                                     logger.info(f"Обработано {message_count} сообщений из канала {channel_name}")
-                                await asyncio.sleep(WAIT_TIME)  # Пауза между пакетами
+                                
+                                # Адаптивная пауза: уменьшаем время ожидания при успешных запросах
+                                if consecutive_errors == 0 and current_wait_time > WAIT_TIME:
+                                    current_wait_time = max(WAIT_TIME, current_wait_time * 0.8)
+                                    
+                                consecutive_errors = 0
+                                logger.debug(f"Пауза между пакетами: {current_wait_time:.1f} сек")
+                                await asyncio.sleep(current_wait_time)
 
                 # Добавляем оставшиеся сообщения
                 if batch:
@@ -165,11 +177,21 @@ class TelegramParser:
                 wait_time = e.seconds
                 logger.warning(f"FloodWaitError в канале {channel_name}: ожидание {wait_time} секунд...")
                 await asyncio.sleep(wait_time)
+                consecutive_errors += 1
+            except asyncio.TimeoutError as e:
+                consecutive_errors += 1
+                # Увеличиваем время ожидания при последовательных ошибках
+                current_wait_time = min(current_wait_time * 1.5, 30)  # Максимум 30 секунд
+                logger.warning(f"TimeoutError в канале {channel_name}: повторная попытка через {current_wait_time:.1f} секунд... ({attempt+1}/{max_retries})")
+                await asyncio.sleep(current_wait_time)
             except Exception as e:
+                consecutive_errors += 1
+                current_wait_time = min(current_wait_time * 1.5, 30)
                 logger.error(f"Ошибка при обработке канала {channel_name}: {e}")
                 if attempt == max_retries - 1:
                     raise
-                await asyncio.sleep(5)
+                logger.info(f"Пауза перед повторной попыткой: {current_wait_time:.1f} сек")
+                await asyncio.sleep(current_wait_time)
 
     def _prepare_dataframe(self) -> pd.DataFrame:
         """
@@ -279,8 +301,10 @@ async def main():
 
     try:
         if content_type in ["news", "all"]:
+            # Уникальное имя сессии для новостей
+            news_session = f"{session_base_name}_news_{datetime.now().strftime('%H%M%S')}"
             news_parser = TelegramParser(
-                session_name=session_name,
+                session_name=news_session,
                 api_id=API_ID,
                 api_hash=API_HASH,
                 phone=PHONE,
@@ -289,8 +313,10 @@ async def main():
             await news_parser.run()
 
         if content_type in ["blogs", "all"]:
+            # Уникальное имя сессии для блогов
+            blogs_session = f"{session_base_name}_blogs_{datetime.now().strftime('%H%M%S')}"
             blogs_parser = TelegramParser(
-                session_name=session_name,
+                session_name=blogs_session,
                 api_id=API_ID,
                 api_hash=API_HASH,
                 phone=PHONE,

@@ -80,10 +80,17 @@ class TextProcessor:
         self.rm_substrings = config["rm_substrings"]
         # Список запрещенных слов
         self.obscene_substrings = config["obscene_substrings"]
+        # Список ключевых слов для предварительной фильтрации
+        self.filter_words = config.get("filter_words", [])
 
     def __call__(self, text: str) -> str:
         if not text:
             return ""
+            
+        # Предварительная фильтрация текста по ключевым словам и символам
+        if self.prefilter_text(text):
+            return ""
+            
         if self.is_bad_text(text):  # Если текст содержит запрещенные слова, игнорируем его
             return ""
         text = self.remove_bad_text(text)  # Удаляем нежелательные подстроки
@@ -97,6 +104,14 @@ class TextProcessor:
         text = self.remove_bad_text(text)
         
         return text.strip()
+
+    # Функция для предварительной фильтрации текста
+    def prefilter_text(self, text: str) -> bool:
+        """
+        Проверяет наличие ключевых слов или символов в тексте.
+        Возвращает True, если текст нужно фильтровать.
+        """
+        return any(filter_word in text.lower() for filter_word in self.filter_words)
 
     # Функция для проверки наличия запрещенных слов в тексте
     def has_obscene(self, text: str) -> bool:
