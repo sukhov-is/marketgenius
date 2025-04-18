@@ -2,10 +2,9 @@ import pandas as pd
 import requests
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
-import argparse
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from tqdm import tqdm
 import time
 
@@ -33,151 +32,198 @@ class MoexLoader:
                 config = json.load(f)
                 return config.get('companies', {})
         except Exception as e:
+            logging.error(f"Ошибка при загрузке конфигурационного файла {config_path}: {str(e)}")
             raise Exception(f"Ошибка при загрузке конфигурационного файла: {str(e)}")
     
     def _setup_logging(self) -> None:
         """Настройка логирования"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
-        )
+        if not logging.getLogger().hasHandlers():
+             logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+             )
+        self.logger = logging.getLogger(__name__)
     
-    def load_security_data(self, security: str, years: int) -> Optional[pd.DataFrame]:
+    def load_security_data(self, security: str, start_date: date, end_date: date) -> Optional[pd.DataFrame]:
         """
-        Загрузка данных для конкретной ценной бумаги
+        Загрузка данных для конкретной ценной бумаги за указанный период.
         
         Parameters:
         -----------
         security : str
-            Тикер ценной бумаги
-        years : int
-            Количество лет истории для загрузки
+            Тикер ценной бумаги.
+        start_date : date
+            Дата начала периода.
+        end_date : date
+            Дата окончания периода.
         
         Returns:
         --------
         Optional[pd.DataFrame]
-            DataFrame с историческими данными или None в случае ошибки
+            DataFrame с историческими данными или None в случае ошибки.
         """
+        self.logger.info(f"Загрузка данных для {security} с {start_date} по {end_date}")
         try:
-            # Формируем даты начала и конца периода
-            end_date = datetime.now().date()
-            start_date = end_date - timedelta(days=365 * years)
-            
             params = {
                 'from': start_date.strftime('%Y-%m-%d'),
                 'till': end_date.strftime('%Y-%m-%d'),
-                'start': 0
+                'start': 0,
+                'limit': 100
             }
-            
+
             all_data = []
-            
+
             while True:
                 url = f"{self.base_url}/{security}.json"
-                r = requests.get(url, params=params)
-                r.raise_for_status()
-                data = r.json()
-                
+                try:
+                    r = requests.get(url, params=params)
+                    r.raise_for_status()
+                    data = r.json()
+                except requests.exceptions.RequestException as req_e:
+                    self.logger.error(f"Ошибка сети при запросе к MOEX API для {security}: {req_e}")
+                    return None
+                except json.JSONDecodeError as json_e:
+                    self.logger.error(f"Ошибка декодирования JSON от MOEX API для {security}: {json_e}")
+                    return None
+
                 history_data = data.get('history', {}).get('data', [])
                 if not history_data:
+                    self.logger.info(f"Нет данных 'history' для {security} в диапазоне с {params['start']}.")
                     break
-                
+
                 all_data.extend(history_data)
-                
-                cursor = data.get('history.cursor', {}).get('data', [])
-                if not cursor:
+
+                cursor_data = data.get('history.cursor', {}).get('data', [])
+                if not cursor_data:
                     break
-                
-                total_rows = cursor[0][1]
-                start = cursor[0][0] + cursor[0][2]
-                
+
+                current_index, total_rows, page_size = cursor_data[0]
+                start = current_index + page_size
+
                 if start >= total_rows:
                     break
-                    
+
                 params['start'] = start
-            
+                self.logger.debug(f"Запрос следующей страницы для {security}, start={start}")
+
+
             if not all_data:
+                self.logger.warning(f"Данные для {security} за период {start_date} - {end_date} не найдены.")
                 return None
-                
+
             columns = data.get('history', {}).get('columns', [])
+            if not columns:
+                 self.logger.error(f"Не найдены колонки 'history.columns' в ответе API для {security}")
+                 return None
+
             df = pd.DataFrame(all_data, columns=columns)
-            
-            # Фильтруем только по основному режиму торгов TQBR
+
             df = df[df['BOARDID'] == 'TQBR']
-            
-            # Оставляем только нужные колонки
+            if df.empty:
+                self.logger.warning(f"Нет данных в режиме TQBR для {security} за период {start_date} - {end_date}.")
+                return None
+
             needed_columns = ['TRADEDATE', 'SECID', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME', 'WAPRICE']
-            df = df[needed_columns]
-            
-            # Преобразуем даты и сортируем
-            df['TRADEDATE'] = pd.to_datetime(df['TRADEDATE'])
+            available_columns = [col for col in needed_columns if col in df.columns]
+            if len(available_columns) != len(needed_columns):
+                missing = set(needed_columns) - set(available_columns)
+                self.logger.warning(f"В данных для {security} отсутствуют колонки: {missing}. Используются только доступные.")
+
+            if not available_columns:
+                 self.logger.error(f"Ни одна из необходимых колонок ({needed_columns}) не найдена для {security}.")
+                 return None
+
+            df = df[available_columns]
+
+            numeric_cols = ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME', 'WAPRICE']
+            for col in numeric_cols:
+                if col in df.columns:
+                     df[col] = pd.to_numeric(df[col], errors='coerce')
+
             df = df.sort_values('TRADEDATE').reset_index(drop=True)
-            
+            self.logger.info(f"Успешно загружено {len(df)} строк для {security}.")
             return df
-            
+
         except Exception as e:
-            logging.error(f"Ошибка при загрузке данных для {security}: {str(e)}")
+            self.logger.exception(f"Непредвиденная ошибка при загрузке данных для {security}: {str(e)}")
             return None
     
-    def download_all(self, output_dir: str, years: int, delay: float = 1.0) -> None:
+    def download_historical_range(
+        self,
+        output_dir: str,
+        start_date: date,
+        end_date: date,
+        tickers_list: Optional[List[str]] = None,
+        delay: float = 1.0
+        ) -> None:
         """
-        Загрузка данных для всех компаний
+        Загрузка и сохранение данных для списка тикеров за указанный диапазон дат.
         
         Parameters:
         -----------
         output_dir : str
-            Директория для сохранения файлов
-        years : int
-            Количество лет истории
-        delay : float
-            Задержка между запросами в секундах
+            Директория для сохранения файлов CSV.
+        start_date : date
+            Дата начала периода.
+        end_date : date
+            Дата окончания периода.
+        tickers_list : Optional[List[str]], optional
+            Список тикеров для загрузки. Если None, используются все тикеры из конфига.
+            По умолчанию None.
+        delay : float, optional
+            Задержка между запросами к API в секундах. По умолчанию 1.0.
         """
         output_path = Path(output_dir)
-        output_path.mkdir(exist_ok=True)
-        
+        output_path.mkdir(parents=True, exist_ok=True)
+
         results = []
-        
-        for ticker, name in tqdm(self.companies.items(), desc="Загрузка данных"):
-            logging.info(f"Загрузка данных для {ticker} ({name})")
-            
-            df = self.load_security_data(ticker, years)
-            if df is not None:
-                file_path = output_path / f"{ticker}_data.csv"
-                df.to_csv(file_path, index=False)
-                status = "Успешно"
-                rows = len(df)
-            else:
-                status = "Ошибка"
+
+        if tickers_list is None:
+            tickers_to_load = list(self.companies.keys())
+        else:
+            tickers_to_load = tickers_list
+
+        self.logger.info(f"Начало загрузки данных для {len(tickers_to_load)} тикеров...")
+
+        for ticker in tqdm(tickers_to_load, desc="Загрузка данных MOEX"):
+            company_name = self.companies.get(ticker, "N/A")
+            self.logger.info(f"Обработка тикера: {ticker} ({company_name})")
+
+            df = self.load_security_data(ticker, start_date, end_date)
+
+            if df is not None and not df.empty:
+                file_path = output_path / f"{ticker}_moex_data.csv"
+                try:
+                    df.to_csv(file_path, index=False)
+                    status = "Успешно"
+                    rows = len(df)
+                    self.logger.info(f"Данные для {ticker} сохранены в {file_path}")
+                except IOError as io_e:
+                    status = "Ошибка сохранения"
+                    rows = 0
+                    self.logger.error(f"Не удалось сохранить файл для {ticker} в {file_path}: {io_e}")
+            elif df is None:
+                status = "Ошибка загрузки"
                 rows = 0
-                
+            else:
+                status = "Нет данных"
+                rows = 0
+                self.logger.warning(f"Нет данных для сохранения для тикера {ticker}")
+
             results.append({
                 'ticker': ticker,
-                'name': name,
+                'name': company_name,
                 'status': status,
-                'rows': rows
+                'rows': rows,
+                'start_date': start_date.strftime('%Y-%m-%d'),
+                'end_date': end_date.strftime('%Y-%m-%d')
             })
-            
+
             time.sleep(delay)
-        
-        # Сохраняем отчет о загрузке
-        pd.DataFrame(results).to_csv(output_path / 'download_report.csv', index=False)
 
-
-def main():
-    parser = argparse.ArgumentParser(description='Загрузка исторических данных с MOEX')
-    parser.add_argument('--config', type=str, default='configs/companies_config.json',
-                      help='Путь к конфигурационному файлу')
-    parser.add_argument('--output', type=str, default='data/moex',
-                      help='Директория для сохранения данных')
-    parser.add_argument('--years', type=int, default=5,
-                      help='Количество лет истории')
-    parser.add_argument('--delay', type=float, default=1.0,
-                      help='Задержка между запросами (сек)')
-    
-    args = parser.parse_args()
-    
-    loader = MoexLoader(args.config)
-    loader.download_all(args.output, args.years, args.delay)
-
-
-if __name__ == "__main__":
-    main()
+        report_path = output_path / 'download_report.csv'
+        try:
+            pd.DataFrame(results).to_csv(report_path, index=False)
+            self.logger.info(f"Отчет о загрузке сохранен в {report_path}")
+        except IOError as io_e:
+            self.logger.error(f"Не удалось сохранить отчет о загрузке в {report_path}: {io_e}")

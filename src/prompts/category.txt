@@ -151,20 +151,5 @@ Answer: News about oil price changes, so ["OIL"]
 ###
 
 
-Text: {{«Яндекс» = +1% 
-Мечел = +1% 
-Промомед = -1% 
-Netease = -3% 
-Bilibili  = +11% 
-EPAM Systems = -2% 
-Alibaba = +10% 
-Utz Brands = +1% 
-Hasbro = +4% 
-Cameco = +2% 
-Wallmart = -5% 
-Wayfair = +7% 
-Shake Shack  = +13% 
-Trip Advisor = -7% 
-Unity = +2% 
-Booking = -1%}}
+Text: {{}}
 Answer:

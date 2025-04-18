@@ -28,8 +28,13 @@ def process_messages(df, text_processor):
     before_removal = len(df)
     df = df[df["news"].str.strip() != ""]
     empty_messages_removed = before_removal - len(df)
+    
+    # Удаление дубликатов
+    before_duplicates = len(df)
+    df = df.drop_duplicates(subset=["news"])
+    duplicates_removed = before_duplicates - len(df)
 
-    return df, empty_messages_removed, date_filtered
+    return df, empty_messages_removed, duplicates_removed, date_filtered
 
 
 def main(input_path, output_path, annotator_config):
@@ -49,7 +54,7 @@ def main(input_path, output_path, annotator_config):
         raise ValueError("В файле отсутствует столбец 'news'.")
 
     # Обработка сообщений
-    df, empty_messages_removed, date_filtered = process_messages(df, text_processor)
+    df, empty_messages_removed, duplicates_removed, date_filtered = process_messages(df, text_processor)
 
     # Определяем разделитель для выходного файла на основе его расширения
     output_separator = "\t" if output_path.endswith(".tsv") else ","
@@ -61,6 +66,7 @@ def main(input_path, output_path, annotator_config):
     print(f"Файл успешно обработан и сохранен в {output_path}.")
     print(f"Удалено записей с датой ранее 01.02.2019: {date_filtered}")
     print(f"Удалено пустых сообщений: {empty_messages_removed}")
+    print(f"Удалено дубликатов: {duplicates_removed}")
 
 
 if __name__ == "__main__":
