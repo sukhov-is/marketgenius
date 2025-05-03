@@ -1,76 +1,129 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Скрипт для токенизации текстов из CSV/TSV-файлов с использованием Natasha.
+"""
+
 import argparse
+import logging
+import sys
+from pathlib import Path
+
 import pandas as pd
 from tqdm.auto import tqdm
+from natasha import Segmenter, MorphVocab, NewsEmbedding, NewsMorphTagger, Doc
 
-from tokenizer import Tokenizer
+# Настройка логирования
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
-
-def tokenize_texts(texts, tokenizer):
+class Tokenizer:
     """
-    Токенизирует список текстов с преобразованием в формат "лемма_часть_речи".
-    Args:
-        texts: список текстов для токенизации
-        tokenizer: токенизатор для обработки текстов
-    Returns:
-        список токенизированных текстов
+    Класс-обёртка для токенизации текста с использованием Natasha.
+    """
+    def __init__(self) -> None:
+        self.segmenter = Segmenter()
+        self.morph_vocab = MorphVocab()
+        self.embedding = NewsEmbedding()
+        self.morph_tagger = NewsMorphTagger(self.embedding)
+
+    def __call__(self, text: str) -> list:
+        doc = Doc(text)
+        doc.segment(self.segmenter)
+        doc.tag_morph(self.morph_tagger)
+        for token in doc.tokens:
+            token.lemmatize(self.morph_vocab)
+        return doc.tokens
+
+
+def tokenize_texts(texts: list, tokenizer: Tokenizer) -> list:
+    """
+    Токенизирует список текстов и возвращает токены в формате 'лемма_POS'.
     """
     tokenized = []
     total_tokens = 0
-    for text in tqdm(texts, desc="Tokenizing"):
+    for text in tqdm(texts, desc="Tokenizing", unit="doc"):
         tokens = tokenizer(text)
-        tokens_transformed = [
-            f"{t.lemma.lower().replace('_', '')}_{t.pos}"
-            for t in tokens if hasattr(t, "lemma") and hasattr(t, "pos")
+        formatted = [
+            f"{token.lemma.lower().replace('_','')}_{token.pos}"
+            for token in tokens
+            if getattr(token, "lemma", None) and getattr(token, "pos", None)
         ]
-        total_tokens += len(tokens_transformed)
-        tokenized.append(" ".join(tokens_transformed))
-    print(f"Всего токенов в датасете: {total_tokens}")
+        total_tokens += len(formatted)
+        tokenized.append(" ".join(formatted))
+    logger.info("Всего токенов: %d", total_tokens)
     return tokenized
 
 
-def process_news(input_path, output_path="news_with_tokens.csv", news_column="news"):
+def process_file(
+    input_path: Path,
+    output_path: Path,
+    news_column: str,
+    tokenizer: Tokenizer
+) -> None:
     """
-    Основная функция обработки новостей: токенизация текстов.
-    Args:
-        input_path: путь к входному CSV/TSV файлу
-        output_path: путь для сохранения результатов
-        news_column: название колонки с текстами новостей
+    Загружает данные, токенизирует столбец с новостями и сохраняет результат.
     """
-    # Инициализируем токенизатор
-    tokenizer = Tokenizer()
+    if not input_path.exists():
+        logger.error("Входной файл '%s' не найден", input_path)
+        sys.exit(1)
 
-    # Определяем разделитель на основе расширения файла
-    sep = "\t" if input_path.lower().endswith(".tsv") else ","
-    df = pd.read_csv(input_path, sep=sep)
+    sep = "\t" if input_path.suffix.lower() == ".tsv" else ","
+    try:
+        df = pd.read_csv(input_path, sep=sep)
+    except Exception as e:
+        logger.error("Ошибка чтения '%s': %s", input_path, e)
+        sys.exit(1)
+
     if news_column not in df.columns:
-        raise ValueError(f"Колонка '{news_column}' отсутствует в файле {input_path}")
+        logger.error("Колонка '%s' отсутствует в файле '%s'", news_column, input_path)
+        sys.exit(1)
 
-    # Токенизируем тексты
     texts = df[news_column].astype(str).tolist()
-    tokens = tokenize_texts(texts, tokenizer)
+    df['tokens'] = tokenize_texts(texts, tokenizer)
 
-    # Сохраняем результаты
-    df["tokens"] = tokens
-    df.to_csv(output_path, index=False)
-    print(f"Результат сохранён в {output_path}")
+    try:
+        df.to_csv(output_path, index=False)
+    except Exception as e:
+        logger.error("Ошибка сохранения '%s': %s", output_path, e)
+        sys.exit(1)
+
+    logger.info("Результат сохранен в '%s'", output_path)
 
 
-def main(**kwargs):
-    """
-    Точка входа в программу, обрабатывает аргументы командной строки.
-    """
-    process_news(
-        input_path=kwargs["input_path"],
-        output_path=kwargs.get("output_path", "news_with_tokens.csv"),
-        news_column=kwargs.get("news_column", "news")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Токенизация текстов CSV/TSV"
+    )
+    parser.add_argument(
+        "-i", "--input-path", type=Path, required=True,
+        help="Путь к входному CSV/TSV файлу"
+    )
+    parser.add_argument(
+        "-o", "--output-path", type=Path,
+        default=Path("news_with_tokens.csv"),
+        help="Путь для сохранения результата"
+    )
+    parser.add_argument(
+        "-c", "--news-column", type=str, default="news",
+        help="Название колонки с текстами новостей"
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    tokenizer = Tokenizer()
+    process_file(
+        input_path=args.input_path,
+        output_path=args.output_path,
+        news_column=args.news_column,
+        tokenizer=tokenizer
     )
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Токенизация сообщений в CSV/TSV-файле.")
-    parser.add_argument("--input-path", type=str, default="data/raw/earliest_news.csv")
-    parser.add_argument("--output-path", type=str, default="data/raw/news_with_tokens.csv")
-    parser.add_argument("--news-column", type=str, default="news")
-    
-    args = parser.parse_args()
-    main(**vars(args))
+    main()

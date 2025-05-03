@@ -221,7 +221,7 @@ class TelegramParser:
 
         # Очистка и сортировка DataFrame
         df.drop(columns=['channel_link', 'message_id'], inplace=True)
-        df = df[['datetime', 'channel_name', 'message_link', 'views', 'news']]  # Добавляем 'views' в список столбцов
+        df = df[['datetime', 'channel_name', 'message_link', 'views', 'news']] 
         df.sort_values(by='datetime', inplace=True)
 
         return df

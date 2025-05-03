@@ -1,8 +1,6 @@
 {
     "news": {
-        "t.me/banksta" : "Банкста",
         "t.me/newssmartlab" : "СМАРТЛАБ НОВОСТИ",
-        "t.me/markettwits" : "MarketTwits",
         "t.me/bcs_express" : "БКС Экспресс",
         "t.me/ifax_go" : "Интерфакс. Рынки",
         "t.me/Information_disclosure" : "Раскрытие корпоративной информации",
@@ -10,7 +8,6 @@
         "t.me/if_market_news" : "IF News",
         "t.me/finamnews" : "Финам.RU Новости компаний",
         "t.me/cbrstocks" : "Сигналы РЦБ",
-        "t.me/headlines_for_traders" : "headlines",
         "t.me/finamalert" : "Финам Торговые сигналы",
         "t.me/investmint" : "ДИВИДЕНДЫ INVESTMINT",
         "t.me/divonline" : "Дивиденды онлайн",

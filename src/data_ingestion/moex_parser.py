@@ -30,7 +30,17 @@ class MoexLoader:
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-                return config.get('companies', {})
+                companies_data = config.get('companies', {})
+                # Преобразуем новый формат к старому для обратной совместимости
+                companies = {}
+                for ticker, data in companies_data.items():
+                    if isinstance(data, dict) and 'names' in data and data['names']:
+                        # Берем первое название из списка как основное
+                        companies[ticker] = data['names'][0]
+                    elif isinstance(data, str):
+                        # Поддержка старого формата
+                        companies[ticker] = data
+                return companies
         except Exception as e:
             logging.error(f"Ошибка при загрузке конфигурационного файла {config_path}: {str(e)}")
             raise Exception(f"Ошибка при загрузке конфигурационного файла: {str(e)}")

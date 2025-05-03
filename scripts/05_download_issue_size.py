@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import date
+import json
 
 # --- Константы ---
 # Получаем директорию, где находится сам скрипт
@@ -12,24 +13,27 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
 MERGED_FEATURES_DIR = os.path.join(PROJECT_ROOT, "data/processed/merged_features")
-REFERENCE_DATA_DIR = os.path.join(PROJECT_ROOT, "data/reference")
+REFERENCE_DATA_DIR = os.path.join(PROJECT_ROOT, "data/raw/reference")
 OUTPUT_FILE = os.path.join(REFERENCE_DATA_DIR, "issue_sizes.csv")
 
 MOEX_API_URL = "https://iss.moex.com/iss/securities/{security}.json"
 REQUEST_DELAY_SECONDS = 0.5 # Задержка между запросами к API
 
-def get_tickers_from_features(directory):
-    """Получает список уникальных тикеров из имен файлов в указанной директории."""
-    tickers = set()
+COMPANIES_CONFIG_PATH = os.path.join(PROJECT_ROOT, "configs/companies_config.json")
+
+def get_tickers_from_config(config_file):
+    """Получает список уникальных тикеров из файла конфигурации companies_config.json."""
     try:
-        for filename in os.listdir(directory):
-            if filename.endswith("_merged.csv"):
-                match = re.match(r"([A-Z0-9]+)_merged.csv", filename)
-                if match:
-                    tickers.add(match.group(1))
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        companies = config.get("companies", {})
+        return sorted(companies.keys())
     except FileNotFoundError:
-        print(f"Ошибка: Директория не найдена: {directory}")
-    return sorted(list(tickers))
+        print(f"Ошибка: Файл конфигурации не найден: {config_file}")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"Ошибка парсинга JSON в файле {config_file}: {e}")
+        return []
 
 def get_issue_size_from_moex(ticker):
     """Получает текущее значение IssueSize для тикера с API Мосбиржи."""
@@ -83,9 +87,9 @@ def get_issue_size_from_moex(ticker):
 
 def main():
     print("--- Загрузка количества акций (IssueSize) --- ")
-    tickers = get_tickers_from_features(MERGED_FEATURES_DIR)
+    tickers = get_tickers_from_config(COMPANIES_CONFIG_PATH)
     if not tickers:
-        print("Ошибка: Не найдены тикеры в папке merged_features. Прерывание.")
+        print("Ошибка: Не найдены тикеры в файле конфигурации. Прерывание.")
         return
 
     print(f"Найдено тикеров: {len(tickers)}")
