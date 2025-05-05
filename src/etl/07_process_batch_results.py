@@ -37,10 +37,10 @@ def main():
     # Способ 2: Указать ID и директорию
     parser.add_argument("--batch-id", default=None, help="ID пакетного задания, чьи результаты нужно обработать (используется, если файлы не указаны явно).")
     parser.add_argument("--read-id-from", default=DEFAULT_BATCH_INFO_PATH, help=f"Путь к JSON файлу для чтения Batch ID, если --batch-id не указан (по умолчанию: {DEFAULT_BATCH_INFO_PATH}).")
-    parser.add_argument("--results-dir", default=None, help="Директория, где лежат скачанные файлы results_{id}.jsonl и errors_{id}.jsonl (используется с --batch-id).")
+    parser.add_argument("--results-dir", default='data/external/gpt', help="Директория, где лежат скачанные файлы results_{id}.jsonl и errors_{id}.jsonl (используется с --batch-id).")
 
     # Обязательный аргумент для вывода
-    parser.add_argument("--output-csv", required=True, help="Путь для сохранения итогового CSV файла.")
+    parser.add_argument("--output-csv", default='data/external/gpt/results_gpt.csv', help="Путь для сохранения итогового CSV файла.")
 
     args = parser.parse_args()
 

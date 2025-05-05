@@ -10,12 +10,6 @@ import pandas as pd
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 import openai
 
-# Попробуем импортировать tiktoken для более точного подсчёта токенов.
-try:
-    import tiktoken
-except ImportError:  # библиотека необязательна, работаем без неё
-    tiktoken = None  # type: ignore
-
 _logger = logging.getLogger(__name__)
 
 
@@ -42,7 +36,6 @@ class GPTNewsAnalyzer:
         model: str = "gpt-4o-mini",
         prompt_path: str | os.PathLike = "src/prompts",
         config_path: str | os.PathLike = "configs/companies_config.json",
-        max_tokens: int = 8_000,  # лимит на prompt+response
         chunk_limit: int = 50,  # максимум сообщений в одном запросе
         retries: int = 6,
     ) -> None:
@@ -51,7 +44,6 @@ class GPTNewsAnalyzer:
             raise ValueError("OPENAI_API_KEY не задан")
 
         self.model = model
-        self.max_tokens = max_tokens
         self.chunk_limit = chunk_limit
         # prompt_path может быть как директория с несколькими шаблонами,
         # так и конкретным файлом. Если путь — директория, ищем news & blog.
@@ -188,56 +180,23 @@ class GPTNewsAnalyzer:
     def _split_into_chunks(
         self, messages: List[Tuple[str, str]], prompt_type: str
     ) -> List[List[Tuple[str, str]]]:
-        base_prompt = self._prompts[prompt_type].format(
-            TICKERS_AND_INDICES=self.tickers_block,
-            DATE="YYYY-MM-DD",
-            NEWS_LINES="",
-        )
-        base_tokens = self._count_tokens(base_prompt)
-        max_message_tokens = self.max_tokens - base_tokens - 200
-
-        if max_message_tokens <= 0:
-            _logger.warning("Max_tokens (%d) слишком мал для базового промпта (%d). Чанкование может быть неэффективным.", self.max_tokens, base_tokens)
-            max_message_tokens = 100
-
         chunks: List[List[Tuple[str, str]]] = []
         current_chunk: List[Tuple[str, str]] = []
-        current_tokens = 0
 
         for title, text in messages:
-            message_line = f"{title} : {text}"
-            message_tokens = self._count_tokens(message_line) + 1
-
-            if (len(current_chunk) >= self.chunk_limit or
-                (current_tokens + message_tokens > max_message_tokens and current_chunk)):
+            if len(current_chunk) >= self.chunk_limit and current_chunk:
                 chunks.append(current_chunk)
                 current_chunk = []
-                current_tokens = 0
-
-            if message_tokens > max_message_tokens:
-                _logger.warning("Сообщение для '%s' слишком длинное (%d токенов), может быть обрезано GPT. Лимит: %d", title, message_tokens, max_message_tokens)
 
             current_chunk.append((title, text))
-            current_tokens += message_tokens
 
         if current_chunk:
             chunks.append(current_chunk)
 
         if len(chunks) > 1:
-            _logger.info("Разделено на %d чанков из-за лимита токенов/сообщений.", len(chunks))
+            _logger.info("Разделено на %d чанков из-за лимита сообщений (%d).", len(chunks), self.chunk_limit)
 
         return chunks
-
-    def _count_tokens(self, text: str) -> int:
-        """Подсчитывает токены, используя tiktoken, если доступен."""
-        if not tiktoken:
-            return len(text) // 3
-        try:
-            enc = tiktoken.encoding_for_model(self.model)
-            return len(enc.encode(text))
-        except Exception as e:
-            _logger.warning("Ошибка подсчета токенов tiktoken: %s. Используем примерную оценку.", e)
-            return len(text) // 3
 
     @retry(
         wait=wait_random_exponential(min=1, max=60),
@@ -261,7 +220,7 @@ class GPTNewsAnalyzer:
             content: str = response.choices[0].message.content  # type: ignore
             return self._safe_json(content)
         except openai.error.InvalidRequestError as e:
-            _logger.error("Ошибка запроса к OpenAI (возможно, превышен лимит токенов): %s", e)
+            _logger.error("Ошибка запроса к OpenAI (InvalidRequestError): %s", e)
             return {"summary": f"ERROR: Invalid Request - {e}", "impact": {}}
         except Exception as e:
             _logger.error("Неизвестная ошибка при запросе к OpenAI: %s", e)

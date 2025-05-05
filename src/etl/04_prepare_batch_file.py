@@ -1,14 +1,16 @@
 import argparse
 import logging
-import os
-import sys
 from pathlib import Path
+import os # Добавляем os
+from dotenv import load_dotenv # Добавляем dotenv
+import sys # <-- Добавляем sys
 
-# Добавляем корневую папку проекта в sys.path, чтобы можно было импортировать src
-project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root))
+# Определяем корневую директорию проекта
+project_root = Path(__file__).resolve().parent.parent.parent
 
-from dotenv import load_dotenv
+# Добавляем корневую директорию в sys.path для корректных импортов
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 try:
     from src.utils.gpt_analyzer import GPTNewsAnalyzer
@@ -25,8 +27,8 @@ def main():
     parser = argparse.ArgumentParser(description="Подготовка .jsonl файла для OpenAI Batch API.")
 
     # Обязательные аргументы
-    parser.add_argument("--input-csv", required=True, help="Путь к входному CSV/TSV файлу с новостями.")
-    parser.add_argument("--output-jsonl", required=True, help="Путь для сохранения выходного .jsonl файла.")
+    parser.add_argument("--input-csv", default="data/external/text/representative_news.csv", help="Путь к входному CSV/TSV файлу с новостями.")
+    parser.add_argument("--output-jsonl", default="data/external/text/batch/batch_input_example.jsonl", help="Путь для сохранения выходного .jsonl файла.")
 
     # Аргументы для конфигурации
     parser.add_argument("--config-path", default="configs/companies_config.json", help="Путь к JSON конфигу компаний.")

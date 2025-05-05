@@ -32,8 +32,8 @@ def main():
 
     parser.add_argument("--batch-id", default=None, help="ID пакетного задания для мониторинга (приоритет над --read-id-from).")
     parser.add_argument("--read-id-from", default=DEFAULT_BATCH_INFO_PATH, help=f"Путь к JSON файлу для чтения Batch ID, если --batch-id не указан (по умолчанию: {DEFAULT_BATCH_INFO_PATH}).")
-    parser.add_argument("--output-dir", required=True, help="Директория для сохранения скачанных файлов результатов/ошибок.")
-    parser.add_argument("--interval", type=int, default=60, help="Интервал проверки статуса в секундах (по умолчанию: 60).")
+    parser.add_argument("--output-dir", default='data/external/gpt', help="Директория для сохранения скачанных файлов результатов/ошибок.")
+    parser.add_argument("--interval", type=int, default=300, help="Интервал проверки статуса в секундах (по умолчанию: 300).")
 
     args = parser.parse_args()
 
