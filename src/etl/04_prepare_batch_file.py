@@ -28,7 +28,7 @@ def main():
 
     # Обязательные аргументы
     parser.add_argument("--input-csv", default="data/external/text/representative_news.csv", help="Путь к входному CSV/TSV файлу с новостями.")
-    parser.add_argument("--output-jsonl", default="data/external/text/batch/batch_input_example.jsonl", help="Путь для сохранения выходного .jsonl файла.")
+    parser.add_argument("--output-jsonl", default="data/external/text/batch/batch_input_news.jsonl", help="Путь для сохранения выходного .jsonl файла.")
 
     # Аргументы для конфигурации
     parser.add_argument("--config-path", default="configs/companies_config.json", help="Путь к JSON конфигу компаний.")

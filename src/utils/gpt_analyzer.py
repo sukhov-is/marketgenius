@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import logging
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
@@ -36,6 +37,7 @@ class GPTNewsAnalyzer:
         model: str = "gpt-4o-mini",
         prompt_path: str | os.PathLike = "src/prompts",
         config_path: str | os.PathLike = "configs/companies_config.json",
+        all_config_path: str | os.PathLike = "configs/all_companies_config.json",
         chunk_limit: int = 50,  # максимум сообщений в одном запросе
         retries: int = 6,
     ) -> None:
@@ -59,7 +61,24 @@ class GPTNewsAnalyzer:
             prompt_name = pp.stem.replace("_promt", "")
             self._prompts = {prompt_name: pp.read_text(encoding="utf-8")}
 
-        self.tickers_block = self._load_tickers(config_path)
+        # --- Изменения: Загрузка двух конфигов --- 
+        try:
+            # Загружаем базовый конфиг
+            base_cfg = self._load_config_json(config_path)
+            self.tickers_block, self._base_tickers_set = self._process_base_config(base_cfg)
+
+            # Загружаем полный конфиг для поиска
+            all_cfg = self._load_config_json(all_config_path)
+            self._all_tickers_data, self._all_tickers_descriptions = self._process_all_config(all_cfg)
+
+        except FileNotFoundError as e:
+             _logger.error(f"Ошибка загрузки конфигурационного файла: {e}")
+             raise
+        except Exception as e:
+             _logger.error(f"Ошибка обработки конфигурационного файла: {e}")
+             raise
+        # --- Конец изменений --- 
+
         self._retries = retries
 
     # ------------------------------------------------------------------
@@ -206,13 +225,13 @@ class GPTNewsAnalyzer:
             {"summary": f"ERROR: Max retries exceeded - {retry_state.outcome.exception()}", "impact": {}}
         )
     )
-    def _chat_completion(self, prompt: str) -> dict:
+    def _chat_completion(self, system_prompt: str, user_prompt: str) -> dict:
         try:
             response = openai.ChatCompletion.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
                 temperature=0,
                 response_format={"type": "json_object"},
@@ -232,22 +251,53 @@ class GPTNewsAnalyzer:
             return {"summary": f"ERROR: Unknown prompt type {prompt_type}", "impact": {}}
 
         prompt_template = self._prompts[prompt_type]
-        formatted_messages = "\n".join(f"{title} : {text}" for title, text in messages)
+        formatted_messages = "\\n".join(f"{title.replace(chr(10), ' ').replace(chr(13), '')} : {text.replace(chr(10), ' ').replace(chr(13), '')}" for title, text in messages)
+
+        system_marker = "####################  SYSTEM  ####################"
+        user_marker = "#####################  USER  #####################"
+        end_marker = "##################################################"
 
         try:
-            prompt = prompt_template.format(
-                TICKERS_AND_INDICES=self.tickers_block,
-                DATE=date,
-                NEWS_LINES=formatted_messages,
+            system_start_idx = prompt_template.index(system_marker) + len(system_marker)
+            system_end_idx = prompt_template.index(end_marker, system_start_idx)
+            system_template_part = prompt_template[system_start_idx:system_end_idx].strip()
+
+            user_start_idx = prompt_template.index(user_marker) + len(user_marker)
+            user_end_idx = prompt_template.index(end_marker, user_start_idx)
+            user_template_part = prompt_template[user_start_idx:user_end_idx].strip()
+
+            # --- Новая логика: Поиск доп. тикеров и формирование блока --- 
+            additional_tickers = self._find_additional_tickers(messages)
+            current_tickers_block = self.tickers_block
+            if additional_tickers:
+                additional_lines = [ 
+                    self._all_tickers_descriptions.get(ticker, f"{ticker} : Описание не найдено") 
+                    for ticker in additional_tickers
+                ]
+                current_tickers_block = self.tickers_block + "\n" + "\n".join(additional_lines)
+                _logger.info(f"Для даты {date} добавлены тикеры: {additional_tickers}")
+            # --- Конец новой логики ---
+
+            formatted_system_prompt = system_template_part.format(
+                TICKERS_AND_INDICES=current_tickers_block # Используем обновленный блок
+                # Добавляем "пустышки" для других возможных ключей
+                # DATE="",
+                # NEWS_LINES=""
             )
-        except KeyError as e:
-            _logger.error(f"Ошибка форматирования промпта {prompt_type}: отсутствует ключ {e}")
-            return {"summary": f"ERROR: Prompt formatting error - missing key {e}", "impact": {}}
 
-        _logger.debug("Запрос к GPT (prompt_type=%s, date=%s, messages=%d):\n%s",
-                      prompt_type, date, len(messages), prompt[:500] + "...")
+            formatted_user_prompt = user_template_part.format(
+                DATE=date,
+                NEWS_LINES=formatted_messages
+            )
+        except (ValueError, KeyError, IndexError) as e:
+            _logger.error(f"Ошибка разбора или форматирования шаблона промпта '{prompt_type}' для даты {date}: {e}. "
+                          f"Проверьте маркеры '{system_marker}', '{user_marker}', '{end_marker}' и плейсхолдеры.")
+            return {"summary": f"ERROR: Prompt template processing error - {e}", "impact": {}}
 
-        result = self._chat_completion(prompt)
+        _logger.debug("Запрос к GPT (prompt_type=%s, date=%s, messages=%d):\\nSYSTEM: %s...\\nUSER: %s...",
+                      prompt_type, date, len(messages), formatted_system_prompt[:200], formatted_user_prompt[:300])
+
+        result = self._chat_completion(formatted_system_prompt, formatted_user_prompt)
         _logger.debug("Ответ от GPT: %s", result)
         return result
 
@@ -337,27 +387,118 @@ class GPTNewsAnalyzer:
     # ------------------------------------------------------------------
     # Вспомогательные
     # ------------------------------------------------------------------
+
+    # --- Новые методы для загрузки и обработки конфигов --- 
     @staticmethod
-    def _load_tickers(config_path: str | os.PathLike) -> str:
-        cfg = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    def _load_config_json(path: str | os.PathLike) -> dict:
+        """Загружает JSON конфиг из файла."""
+        try:
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            _logger.error(f"Конфигурационный файл не найден: {path}")
+            raise
+        except json.JSONDecodeError as e:
+            _logger.error(f"Ошибка парсинга JSON в файле {path}: {e}")
+            raise
+
+    @staticmethod
+    def _process_base_config(cfg: dict) -> Tuple[str, set]:
+        """Обрабатывает базовый конфиг, возвращает блок тикеров для промпта и множество базовых тикеров."""
+        ticker_lines = []
+        base_tickers = set()
         companies = cfg.get("companies", {})
         indices = cfg.get("indices", {})
-        
-        # Создаем список строк для вывода
-        ticker_lines = []
-        
-        # Обрабатываем компании в новом формате
+
         for ticker, data in companies.items():
+            base_tickers.add(ticker)
             if isinstance(data, dict) and 'names' in data:
-                # Добавляем все возможные названия компании
                 joined_names = ", ".join(data['names'])
                 ticker_lines.append(f"{ticker} : {joined_names}")
             elif isinstance(data, str):
-                # Старый формат для обратной совместимости
                 ticker_lines.append(f"{ticker} : {data}")
-        
-        # Индексы оставляем без изменений
+
         for ticker, description in indices.items():
+            base_tickers.add(ticker)
             ticker_lines.append(f"{ticker} : {description}")
-        
-        return "\n".join(ticker_lines) 
+
+        return "\n".join(ticker_lines), base_tickers
+
+    @staticmethod
+    def _process_all_config(cfg: dict) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """Обрабатывает полный конфиг, создавая структуры для поиска.
+        Возвращает:
+         - all_tickers_data: Словарь {lower_name_or_ticker -> main_ticker}
+         - all_tickers_descriptions: Словарь {main_ticker -> description_line}
+        """
+        all_tickers_data = {}
+        all_tickers_descriptions = {}
+        companies = cfg.get("companies", {})
+        indices = cfg.get("indices", {})
+
+        for ticker, data in companies.items():
+            ticker_lower = ticker.lower()
+            description_line = ""
+            names_to_add = {ticker_lower}
+
+            if isinstance(data, dict) and 'names' in data:
+                joined_names = ", ".join(data['names'])
+                description_line = f"{ticker} : {joined_names}"
+                for name in data['names']:
+                    names_to_add.add(name.lower())
+            elif isinstance(data, str):
+                description_line = f"{ticker} : {data}"
+                names_to_add.add(data.lower())
+            
+            if description_line:
+                 all_tickers_descriptions[ticker] = description_line
+                 for name in names_to_add:
+                      # Не перезаписываем, если имя уже занято (на случай дубликатов в конфиге)
+                      if name not in all_tickers_data:
+                          all_tickers_data[name] = ticker
+
+        for ticker, description in indices.items():
+            ticker_lower = ticker.lower()
+            description_line = f"{ticker} : {description}"
+            all_tickers_descriptions[ticker] = description_line
+            # Добавляем и тикер, и описание (если оно короткое) для поиска
+            if ticker_lower not in all_tickers_data:
+                all_tickers_data[ticker_lower] = ticker
+            # Опционально: можно добавить и description.lower() в all_tickers_data, 
+            # но это может дать ложные срабатывания. Пока не будем.
+
+        return all_tickers_data, all_tickers_descriptions
+
+    def _find_additional_tickers(self, messages: List[Tuple[str, str]]) -> set:
+        """Ищет упоминания тикеров/названий из полного конфига в сообщениях как отдельные слова/фразы,
+           возвращает множество основных тикеров, не входящих в базовый набор.
+        """
+        found_tickers = set()
+        # Объединяем заголовки и текст для поиска, приводим к нижнему регистру
+        full_text = " \n ".join(f"{title} {text}" for title, text in messages).lower()
+
+        # Используем поиск по границам слов с помощью регулярных выражений.
+        # (?<!\w) гарантирует, что перед ключом нет буквенно-цифрового символа.
+        # (?!\w) гарантирует, что после ключа нет буквенно-цифрового символа.
+        # Это позволяет находить ключ как "целое слово" или фразу.
+        for name_or_ticker_key, main_ticker in self._all_tickers_data.items():
+            # name_or_ticker_key уже в нижнем регистре (из _process_all_config)
+            # Экранируем ключ на случай, если он содержит спецсимволы для regex
+            escaped_key = re.escape(name_or_ticker_key)
+            # Формируем паттерн для поиска. re.IGNORECASE не нужен, т.к. full_text и key уже в lower case.
+            pattern = rf"(?<!\w){escaped_key}(?!\w)"
+            if re.search(pattern, full_text):
+                found_tickers.add(main_ticker)
+
+        # Вычисляем тикеры, которые были найдены дополнительно к базовому набору
+        additional_tickers = found_tickers - self._base_tickers_set
+        if additional_tickers:
+            _logger.debug(f"Найдены дополнительные тикеры для чанка: {additional_tickers}")
+
+        return additional_tickers
+
+    # --- Убираем старый статический метод _load_tickers --- 
+    # @staticmethod
+    # def _load_tickers(config_path: str | os.PathLike) -> str:
+    #     cfg = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    #     ...
+    #     return "\n".join(ticker_lines) 

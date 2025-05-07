@@ -57,7 +57,7 @@ def main():
     parser.add_argument(
         '--companies-config',
         type=str,
-        default='configs/companies_config.json',
+        default='configs/all_companies_config.json',
         help="Путь к JSON файлу конфигурации компаний (по умолчанию: configs/companies_config.json)."
     )
     parser.add_argument(

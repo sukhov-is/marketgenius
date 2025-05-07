@@ -54,6 +54,38 @@ def prepare_batch_input_file(
     requests_written = 0
     total_messages = 0
 
+    # Разделяем шаблон промпта на системную и пользовательскую части
+    system_marker = "####################  SYSTEM  ####################"
+    user_marker = "#####################  USER  #####################"
+    end_marker = "##################################################" # Используем общий маркер конца
+
+    try:
+        # Извлекаем системную часть
+        system_start_idx = prompt_template.index(system_marker) + len(system_marker)
+        system_end_idx = prompt_template.index(end_marker, system_start_idx)
+        system_template_part = prompt_template[system_start_idx:system_end_idx].strip()
+
+        # Извлекаем пользовательскую часть
+        user_start_idx = prompt_template.index(user_marker) + len(user_marker)
+        # Ищем следующий end_marker после начала пользовательской части
+        user_end_idx = prompt_template.index(end_marker, user_start_idx)
+        user_template_part = prompt_template[user_start_idx:user_end_idx].strip()
+
+        # Удаляем старое преждевременное форматирование formatted_system_prompt
+        # # Форматируем системную часть один раз (здесь только тикеры)
+        # formatted_system_prompt = system_template_part.format(
+        #     TICKERS_AND_INDICES=analyzer.tickers_block
+        #     # Добавляем "пустышки" для других возможных ключей, чтобы избежать KeyError,
+        #     # если они случайно окажутся в системной части шаблона
+        #     # DATE="",
+        #     # NEWS_LINES=""
+        # )
+    except (ValueError, KeyError, IndexError) as e:
+        _logger.error(f"Ошибка разбора или форматирования шаблона промпта '{prompt_type}': {e}. "
+                      f"Убедитесь, что маркеры '{system_marker}', '{user_marker}', '{end_marker}' "
+                      f"и плейсхолдеры (как минимум {{TICKERS_AND_INDICES}} в системной части) присутствуют.")
+        raise ValueError(f"Ошибка обработки шаблона промпта '{prompt_type}'.") from e
+
     # Используем 'w' режим и кодировку utf-8
     with output_file_path.open("w", encoding="utf-8") as f:
         for date, group in df.groupby(date_col):
@@ -75,27 +107,62 @@ def prepare_batch_input_file(
             for i, chunk in enumerate(chunks):
                 custom_id = f"date_{day_str}_chunk_{i+1}"
                 # Важно: Новые строки внутри сообщений должны быть экранированы для JSON
-                formatted_messages = "\n".join(f"{title} : {text}" for title, text in chunk)
+                # Заменяем переносы строк для надежности
+                formatted_messages = "\\n".join(f"{title.replace(chr(10), ' ').replace(chr(13), '')} : {text.replace(chr(10), ' ').replace(chr(13), '')}" for title, text in chunk)
 
-                # Формируем полный промпт для этого чанка
+                # --- Новая логика: Поиск доп. тикеров для чанка --- 
                 try:
-                    prompt_content = prompt_template.format(
-                        TICKERS_AND_INDICES=analyzer.tickers_block,
+                    # Используем метод из экземпляра analyzer
+                    additional_tickers = analyzer._find_additional_tickers(chunk) 
+                    current_tickers_block = analyzer.tickers_block
+                    if additional_tickers:
+                        additional_lines = [
+                            analyzer._all_tickers_descriptions.get(ticker, f"{ticker} : Описание не найдено")
+                            for ticker in additional_tickers
+                        ]
+                        current_tickers_block = analyzer.tickers_block + "\n" + "\n".join(additional_lines)
+                        _logger.info(f"Для чанка {custom_id} добавлены тикеры: {additional_tickers}")
+
+                    # Форматируем системную часть с актуальным блоком тикеров
+                    # Используем оригинальный system_template_part для форматирования на каждой итерации чанка
+                    formatted_system_prompt_chunk = system_template_part.format(
+                         TICKERS_AND_INDICES=current_tickers_block
+                         # Добавляем "пустышки" для других возможных ключей, если они присутствуют
+                         # в system_template_part и не должны вызывать ошибок, но в данном
+                         # случае только TICKERS_AND_INDICES актуален для системной части.
+                         # DATE="", # Пример, если бы DATE был в system_template_part
+                         # NEWS_LINES="" # Пример, если бы NEWS_LINES был в system_template_part
+                    )
+                except AttributeError as e:
+                     _logger.error(f"Ошибка доступа к атрибутам analyzer: {e}. Убедитесь, что экземпляр analyzer содержит методы/атрибуты _find_additional_tickers, tickers_block, _all_tickers_descriptions.")
+                     continue # Пропускаем чанк
+                except KeyError as e: # Явно ловим KeyError, который мог возникать здесь
+                    _logger.error(f"Ошибка форматирования системного промпта (KeyError) для {custom_id}: {e}. Проверьте плейсхолдеры в системной части шаблона и передаваемые аргументы.")
+                    continue # Пропускаем чанк
+                except Exception as e:
+                     _logger.error(f"Ошибка при поиске доп. тикеров или форматировании системного промпта для {custom_id}: {e}")
+                     continue # Пропускаем чанк
+                 # --- Конец новой логики ---
+
+                # Формируем пользовательскую часть промпта для этого чанка
+                try:
+                    # Используем user_template_part вместо всего prompt_template
+                    prompt_content_user = user_template_part.format(
                         DATE=day_str,
                         NEWS_LINES=formatted_messages,
+                        # Добавляем "пустышку" для TICKERS, если он случайно есть в user части
+                        # TICKERS_AND_INDICES=""
                     )
                 except KeyError as e:
-                    _logger.error(f"Ошибка форматирования промпта {prompt_type} для {custom_id}: отсутствует ключ {e}")
+                    _logger.error(f"Ошибка форматирования пользовательской части промпта {prompt_type} для {custom_id}: отсутствует ключ {e}")
                     continue # Пропускаем этот чанк
 
-                # Создаем тело запроса для Chat Completions API
-                # ВАЖНО: Batch API может не поддерживать response_format.
-                # Результат будет зависеть от способности модели следовать системной инструкции.
+                # Создаем тело запроса для Chat Completions API с разделенными ролями
                 request_body = {
                     "model": analyzer.model,
                     "messages": [
-                        {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-                        {"role": "user", "content": prompt_content}
+                        {"role": "system", "content": formatted_system_prompt_chunk}, # Используем отформатированную системную часть ДЛЯ ЧАНКА
+                        {"role": "user", "content": prompt_content_user}      # Используем отформатированную пользовательскую часть
                     ],
                     "temperature": 0, # Обычно 0 для задач анализа
                     # "response_format": {"type": "json_object"}, # Скорее всего, не поддерживается Batch API
