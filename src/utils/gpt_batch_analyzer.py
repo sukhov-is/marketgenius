@@ -164,7 +164,7 @@ def prepare_batch_input_file(
                         {"role": "system", "content": formatted_system_prompt_chunk}, # Используем отформатированную системную часть ДЛЯ ЧАНКА
                         {"role": "user", "content": prompt_content_user}      # Используем отформатированную пользовательскую часть
                     ],
-                    "temperature": 0, # Обычно 0 для задач анализа
+                    "temperature": 0.22, # Обычно 0 для задач анализа
                     # "response_format": {"type": "json_object"}, # Скорее всего, не поддерживается Batch API
                 }
 
@@ -551,11 +551,18 @@ def process_batch_output(
         if len(final_summary) > max_summary_len:
             final_summary = final_summary[:max_summary_len-3] + "..."
 
-        # Считаем среднее по тикерам
-        final_impact = {
-            ticker: round(sum(values) / len(values), 2)
-            for ticker, values in merged_impact.items() if values
-        }
+        # Находим оценку с максимальным абсолютным значением для каждого тикера
+        final_impact = {}
+        for ticker, values in merged_impact.items():
+            if not values:
+                continue
+            # Находим значение с максимальным абсолютным значением
+            max_abs_value = values[0]
+            for value in values[1:]:
+                if abs(value) > abs(max_abs_value):
+                    max_abs_value = value
+            # Используем найденное значение (с его исходным знаком) и округляем
+            final_impact[ticker] = round(max_abs_value, 2)
 
         # Добавляем строку в итоговый список
         row_data = {"date": date, "summary": final_summary}

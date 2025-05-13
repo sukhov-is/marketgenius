@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 import json
 import pandas as pd # Для сохранения в CSV
+from datetime import datetime  # Для генерации уникального имени файла
 
 # Добавляем корневую папку проекта в sys.path
 project_root = Path(__file__).resolve().parent.parent.parent # Поднимаемся на 2 уровня из src/etl
@@ -52,7 +53,15 @@ def main():
     batch_id_to_process = args.batch_id
     read_id_path = Path(args.read_id_from)
     results_dir_path = Path(args.results_dir) if args.results_dir else None
+
+    # --- Генерируем уникальное имя для выходного CSV, если пользователь не указал своё ---
+    default_output_csv = parser.get_default('output_csv')
     output_csv_path = Path(args.output_csv)
+
+    if args.output_csv == default_output_csv:  # Пользователь не передал --output-csv
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Например: results_gpt_20240513_123456.csv
+        output_csv_path = output_csv_path.with_name(f"{output_csv_path.stem}_{timestamp_str}{output_csv_path.suffix}")
 
     # --- Определяем пути к файлам для обработки ---
     if not results_file_path: # Если файл результатов не указан явно

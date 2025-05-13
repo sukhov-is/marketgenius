@@ -233,8 +233,8 @@ class GPTNewsAnalyzer:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0,
-                response_format={"type": "json_object"},
+                # temperature=1,
+                response_format={"type": "json_object"}, 
             )
             content: str = response.choices[0].message.content  # type: ignore
             return self._safe_json(content)

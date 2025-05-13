@@ -28,13 +28,13 @@ def main():
 
     # Обязательные аргументы
     parser.add_argument("--input-csv", default="data/external/text/representative_news.csv", help="Путь к входному CSV/TSV файлу с новостями.")
-    parser.add_argument("--output-jsonl", default="data/external/text/batch/batch_input_news.jsonl", help="Путь для сохранения выходного .jsonl файла.")
+    parser.add_argument("--output-jsonl", default="data/external/text/batch/batch_input_news_history.jsonl", help="Путь для сохранения выходного .jsonl файла.")
 
     # Аргументы для конфигурации
     parser.add_argument("--config-path", default="configs/companies_config.json", help="Путь к JSON конфигу компаний.")
     parser.add_argument("--prompt-path", default="src/prompts", help="Путь к директории с файлами промптов (*_promt.txt).")
     parser.add_argument("--prompt-type", default="news", help="Тип промпта для использования (имя файла без _promt.txt).")
-    parser.add_argument("--model", default="gpt-4o-mini", help="Модель OpenAI для указания в запросах.")
+    parser.add_argument("--model", default="gpt-4.1", help="Модель OpenAI для указания в запросах.")
 
     # Аргументы для данных
     parser.add_argument("--date-col", default="datetime", help="Название колонки с датой.")

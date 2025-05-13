@@ -42,7 +42,7 @@ def parse_metadata(metadata_json):
 def main():
     parser = argparse.ArgumentParser(description="Отправка .jsonl файла в OpenAI Batch API и запуск задания.")
 
-    parser.add_argument("--input-jsonl", default="data/external/text/batch/batch_input_example_1.jsonl", help="Путь к подготовленному .jsonl файлу.")
+    parser.add_argument("--input-jsonl", default="data/external/text/batch/batch_input_news_2025-04-09_2025-04-11.jsonl", help="Путь к подготовленному .jsonl файлу.")
     parser.add_argument("--metadata", default=None, help='Метаданные для пакетного задания в формате JSON строки (например, \'{"description": "My batch", "run_id": 123}\').')
     parser.add_argument("--save-id-to", default="data/external/text/batch/latest_batch_info.json", help="Опциональный путь к JSON файлу для сохранения Batch ID и метаданных.")
 
