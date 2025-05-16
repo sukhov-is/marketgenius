@@ -108,7 +108,7 @@ if __name__ == "__main__":
         file_path = sys.argv[1]
     else:
         # Default file path if no argument is provided
-        file_path = "data/external/text/batch/batch_input_news.jsonl"
+        file_path = "data/external/text/batch/batch_input_news_history_part3.jsonl"
         print(f"No file path provided. Using default: {file_path}")
 
 

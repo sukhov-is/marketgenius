@@ -32,16 +32,16 @@ def main():
     parser = argparse.ArgumentParser(description="Обработка скачанных файлов результатов OpenAI Batch API и сохранение в CSV.")
 
     # Способ 1: Указать файлы напрямую
-    parser.add_argument("--results-file", default=None, help="Путь к скачанному файлу результатов (*_results_*.jsonl).")
+    parser.add_argument("--results-file", default="data/processed/gpt/gpt_news_history.jsonl", help="Путь к скачанному файлу результатов (*_results_*.jsonl).")
     parser.add_argument("--errors-file", default=None, help="Путь к скачанному файлу ошибок (*_errors_*.jsonl) (опционально).")
 
     # Способ 2: Указать ID и директорию
     parser.add_argument("--batch-id", default=None, help="ID пакетного задания, чьи результаты нужно обработать (используется, если файлы не указаны явно).")
     parser.add_argument("--read-id-from", default=DEFAULT_BATCH_INFO_PATH, help=f"Путь к JSON файлу для чтения Batch ID, если --batch-id не указан (по умолчанию: {DEFAULT_BATCH_INFO_PATH}).")
-    parser.add_argument("--results-dir", default='data/external/gpt', help="Директория, где лежат скачанные файлы results_{id}.jsonl и errors_{id}.jsonl (используется с --batch-id).")
+    parser.add_argument("--results-dir", default='data/processed/gpt', help="Директория, где лежат скачанные файлы results_{id}.jsonl и errors_{id}.jsonl (используется с --batch-id).")
 
     # Обязательный аргумент для вывода
-    parser.add_argument("--output-csv", default='data/external/gpt/results_gpt.csv', help="Путь для сохранения итогового CSV файла.")
+    parser.add_argument("--output-csv", default='data/processed/gpt/results_gpt_news.csv', help="Путь для сохранения итогового CSV файла.")
 
     args = parser.parse_args()
 
@@ -116,7 +116,16 @@ def main():
 
     try:
         # Вызов основной функции обработки
-        final_df = process_batch_output(results_file_path, errors_file_path)
+        final_df, errored_custom_ids = process_batch_output(results_file_path, errors_file_path)
+
+        if errored_custom_ids:
+            _logger.warning("Обнаружены ошибки при обработке следующих custom_id:")
+            for error_id in errored_custom_ids:
+                _logger.warning(f"- {error_id}")
+            print("\nВнимание: При обработке некоторых Batch API запросов возникли ошибки.")
+            print("Список custom_id с ошибками (см. лог для подробностей):")
+            for error_id in errored_custom_ids:
+                print(f"- {error_id}")
 
         if not final_df.empty:
             # Сохраняем итоговый CSV

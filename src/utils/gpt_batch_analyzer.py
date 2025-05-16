@@ -164,8 +164,8 @@ def prepare_batch_input_file(
                         {"role": "system", "content": formatted_system_prompt_chunk}, # Используем отформатированную системную часть ДЛЯ ЧАНКА
                         {"role": "user", "content": prompt_content_user}      # Используем отформатированную пользовательскую часть
                     ],
-                    "temperature": 0.22, # Обычно 0 для задач анализа
-                    # "response_format": {"type": "json_object"}, # Скорее всего, не поддерживается Batch API
+                    "temperature": 0, # Обычно 0 для задач анализа
+                    "response_format": {"type": "json_object"}, # <--- Добавлено для Batch API
                 }
 
                 # Создаем полную строку для .jsonl файла
@@ -353,36 +353,77 @@ def _safe_json(raw: str | None) -> dict:
     if raw is None:
         # Если контента нет, возвращаем структуру ошибки
         return {"summary": "ERROR: No content received", "impact": {}}
+
+    # Предварительная обработка для удаления знака '+' у чисел, т.к. это невалидный JSON
+    # Пример: "TICKER": +1  -> "TICKER": 1
+    # Простая замена может быть небезопасной, если ": +" встречается в строковых значениях, но для данного случая может подойти.
+    # Более надежно было бы использовать regex, но для простоты начнем с этого.
+    # Важно: Сначала заменяем ": +" (с пробелом), потом ":+" (без пробела), чтобы покрыть оба варианта.
+    # И добавляем пробел после двоеточия, если его там не было, чтобы ":+1" превратилось в ": 1", а не ":1"
+    processed_raw_plus_fixed = raw.replace(': +', ': ').replace(':+', ': ')
+
+    # 1. Попытка с экранированием символов новой строки (предпочтительный метод)
+    # Экранируем уже обработанную строку (processed_raw_plus_fixed), где исправлен '+'
+    escaped_raw = processed_raw_plus_fixed.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\r')
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        _logger.warning(f"JSON ошибка декодирования: {e}. Попытка исправить.")
-        fixed = _repair_json(raw)
+        return json.loads(escaped_raw)
+    except json.JSONDecodeError as e1:
+        _logger.warning(f"Парсинг JSON не удался после исправления '+' и экранирования НС: {e1}.")
+        _logger.debug(f"Исходная RAW строка: <<<\n{raw}\n>>>")
+        _logger.debug(f"Строка после исправления '+' (перед экранированием НС): <<<\n{processed_raw_plus_fixed}\n>>>")
+        _logger.debug(f"Строка после экранирования НС (неудачная попытка): <<<\n{escaped_raw}\n>>>")
+
+        # 2. Попытка с удалением символов новой строки из строки, где уже исправлен '+'
+        _logger.info("Попытка парсинга JSON после удаления символов новой строки (из строки с исправленным '+').")
+        deleted_newlines_raw = processed_raw_plus_fixed.replace('\r\n', '').replace('\n', '').replace('\r', '')
         try:
-            return json.loads(fixed)
-        except Exception as inner_e:
-            _logger.error(f"Не удалось исправить JSON после ошибки: {inner_e}")
-            # Возвращаем структуру с ошибкой, чтобы она попала в итог
-            return {"summary": f"ERROR: Failed to parse JSON response - {e}", "impact": {}}
+            parsed_obj = json.loads(deleted_newlines_raw)
+            _logger.warning(f"JSON успешно разобран после исправления '+' и УДАЛЕНИЯ символов новой строки. Исходная ошибка была: {e1}. Содержимое могло измениться.")
+            return parsed_obj
+        except json.JSONDecodeError as e2:
+            _logger.warning(f"Парсинг JSON не удался после исправления '+' и удаления НС: {e2}.")
+            _logger.debug(f"Строка после удаления НС (неудачная попытка): <<<\n{deleted_newlines_raw}\n>>>")
+
+            # 3. Попытка с агрессивным исправлением (_repair_json) для строки, где уже исправлен '+'
+            _logger.info("Попытка парсинга JSON после агрессивного исправления (_repair_json) строки с исправленным '+'.")
+            repaired_after_plus_fix_raw = _repair_json(processed_raw_plus_fixed) 
+            try:
+                parsed_obj = json.loads(repaired_after_plus_fix_raw)
+                _logger.warning(f"JSON успешно разобран после исправления '+' и агрессивного исправления (_repair_json). Исходная ошибка была: {e1}. Содержимое могло значительно измениться.")
+                return parsed_obj
+            except Exception as e3:
+                _logger.warning(f"Парсинг JSON не удался после исправления '+' и _repair_json: {e3}. Попробуем _repair_json на исходной строке.")
+                
+                # 4. Попытка с агрессивным исправлением (_repair_json) для САМОЙ ИСХОДНОЙ raw строки
+                _logger.info("Попытка парсинга JSON после агрессивного исправления (_repair_json) на ИСХОДНОЙ строке.")
+                repaired_original_raw = _repair_json(raw)
+                try:
+                    parsed_obj = json.loads(repaired_original_raw)
+                    _logger.warning(f"JSON успешно разобран после агрессивного исправления (_repair_json) ИСХОДНОЙ строки. Исходная ошибка была: {e1}. Содержимое могло значительно измениться.")
+                    return parsed_obj
+                except Exception as e4:
+                    _logger.error(f"Не удалось разобрать JSON ни одним из методов. Ошибка после исправления '+' и экранирования НС: {e1}, после удаления НС: {e2}, после _repair_json(+): {e3}, после _repair_json(исх): {e4}")
+                    return {"summary": f"ERROR: Failed to parse JSON response - {e1}", "impact": {}}
 
 # -----------------------------------------------------------------------------
 
 def process_batch_output(
     results_file: str | os.PathLike | None,
     errors_file: str | os.PathLike | None,
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, List[str]]:
     """
     Обрабатывает скачанные .jsonl файлы с результатами и ошибками от Batch API,
-    объединяет результаты по дням и возвращает итоговый DataFrame.
+    объединяет результаты по дням и возвращает итоговый DataFrame и список ID с ошибками.
 
     Args:
         results_file: Путь к .jsonl файлу с успешными результатами.
         errors_file: Путь к .jsonl файлу с ошибками.
 
     Returns:
-        DataFrame с агрегированными результатами по дням.
+        Кортеж: (DataFrame с агрегированными результатами по дням, Список custom_id с ошибками).
     """
     all_results: Dict[str, Any] = {}
+    problematic_custom_ids: List[str] = [] # <--- Список для ID с ошибками
     processed_count = 0
     error_count = 0
 
@@ -479,9 +520,14 @@ def process_batch_output(
     else:
         _logger.warning("Файл результатов не найден или не указан.")
 
+    # Собираем ID с ошибками из all_results
+    for cid, result_data in all_results.items():
+        if isinstance(result_data, dict) and result_data.get("summary", "").strip().startswith("ERROR"):
+            problematic_custom_ids.append(cid)
+
     if not all_results:
         _logger.error("Не найдено ни одного результата или ошибки для обработки.")
-        return pd.DataFrame() # Возвращаем пустой DataFrame
+        return pd.DataFrame(), problematic_custom_ids # Возвращаем пустой DF и список ID
 
     # 3. Группировка и объединение результатов по дням
     daily_data: Dict[str, List[Dict[str, Any]]] = {}
@@ -536,8 +582,8 @@ def process_batch_output(
         final_summary_parts = []
         if error_summaries:
             # Добавляем предупреждение и перечисляем ошибки
-            error_prefix = f"WARNING: {len(error_summaries)}/{len(parts)} part(s) failed. Errors: {'; '.join(error_summaries)}"
-            final_summary_parts.append(error_prefix)
+            # error_prefix = f"WARNING: {len(error_summaries)}/{len(parts)} part(s) failed. Errors: {'; '.join(error_summaries)}"
+            # final_summary_parts.append(error_prefix)
             _logger.warning(f"Для даты {date} были ошибки в {len(error_summaries)}/{len(parts)} частях.")
 
         # Добавляем саммари из валидных частей
@@ -559,7 +605,7 @@ def process_batch_output(
             # Находим значение с максимальным абсолютным значением
             max_abs_value = values[0]
             for value in values[1:]:
-                if abs(value) > abs(max_abs_value):
+                if abs(value) >= abs(max_abs_value):
                     max_abs_value = value
             # Используем найденное значение (с его исходным знаком) и округляем
             final_impact[ticker] = round(max_abs_value, 2)
@@ -571,7 +617,7 @@ def process_batch_output(
 
     if not final_rows:
         _logger.error("Не удалось сформировать ни одной итоговой строки после агрегации.")
-        return pd.DataFrame()
+        return pd.DataFrame(), problematic_custom_ids # Возвращаем пустой DF и список ID
 
     # 4. Создание DataFrame
     _logger.info("Создание итогового DataFrame...")
@@ -593,7 +639,10 @@ def process_batch_output(
              _logger.warning(f"Не удалось отсортировать DataFrame по дате: {e}")
 
     _logger.info(f"Обработка завершена. Итоговый DataFrame содержит {len(results_df)} строк.")
-    return results_df
+    if problematic_custom_ids:
+        _logger.warning(f"Список custom_id, при обработке которых возникли ошибки: {problematic_custom_ids}")
+
+    return results_df, problematic_custom_ids
 
 
 # --- Пример использования (можно будет вынести в основной скрипт) ---

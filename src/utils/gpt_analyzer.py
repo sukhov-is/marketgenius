@@ -227,22 +227,28 @@ class GPTNewsAnalyzer:
     )
     def _chat_completion(self, system_prompt: str, user_prompt: str) -> dict:
         try:
+            if not hasattr(openai, 'chat') or not hasattr(openai.chat, 'completions'):
+                 _logger.warning("OpenAI client might not be initialized in the modern way. Proceeding with openai.ChatCompletion.create.")
+
             response = openai.ChatCompletion.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                # temperature=1,
-                response_format={"type": "json_object"}, 
+                response_format={"type": "json_object"},
             )
             content: str = response.choices[0].message.content  # type: ignore
             return self._safe_json(content)
         except openai.error.InvalidRequestError as e:
             _logger.error("Ошибка запроса к OpenAI (InvalidRequestError): %s", e)
+            if "response_format" in str(e).lower() and "is not supported with this model" in str(e).lower():
+                 _logger.error(f"Модель {self.model} не поддерживает response_format={{'type': 'json_object'}}."
+                               " Пожалуйста, используйте совместимую модель (например, gpt-3.5-turbo-1106, gpt-4-1106-preview или новее).")
+                 return {"summary": f"ERROR: Model {self.model} does not support JSON mode. - {e}", "impact": {}}
             return {"summary": f"ERROR: Invalid Request - {e}", "impact": {}}
         except Exception as e:
-            _logger.error("Неизвестная ошибка при запросе к OpenAI: %s", e)
+            _logger.error("Неизвестная ошибка при запросе к OpenAI: %s", e, exc_info=True)
             raise
 
     def _ask_gpt(self, date: str, messages: List[Tuple[str, str]], prompt_type: str) -> dict:
