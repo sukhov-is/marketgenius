@@ -37,17 +37,47 @@ _logger = logging.getLogger(__name__)
 STATUS_TERMINAL = {"completed", "failed", "expired", "cancelled"}
 
 
-def wait_for_completion(batch_id: str, interval: int) -> dict | None:
-    """Ожидает завершения пакетного задания, регулярно проверяя его статус."""
+def wait_for_completion(
+    batch_id: str,
+    interval: int,
+    max_none_checks: int = 15,
+    max_minutes: int | None = 60,
+) -> dict | None:
+    """Ожидает завершения пакетного задания.
+
+    Если подряд `max_none_checks` раз не удаётся получить статус ИЛИ общее время ожидания
+    превышает `max_minutes`, функция возвращает None, чтобы вызывающий код мог перейти к
+    повторной попытке или завершить работу.
+    """
+
     _logger.info(f"Начало ожидания завершения Batch ID: {batch_id}")
+    start_ts = time.time()
+    none_counter = 0
+
     while True:
+        # Проверка таймаута
+        if max_minutes is not None and (time.time() - start_ts) > max_minutes * 60:
+            _logger.error(
+                f"Превышено максимальное время ожидания ({max_minutes} мин) для {batch_id}."
+            )
+            return None
+
         status_info = check_batch_status(batch_id)
         if not status_info:
+            none_counter += 1
             _logger.warning(
-                f"Не удалось получить статус для {batch_id}. Повтор через {interval} сек."
+                f"Не удалось получить статус для {batch_id} (попытка {none_counter}/{max_none_checks})."
             )
+            if none_counter >= max_none_checks:
+                _logger.error(
+                    f"Количество неудачных запросов статуса превысило лимит ({max_none_checks})."
+                )
+                return None
             time.sleep(interval)
             continue
+
+        # Сброс счётчика, если статус получен
+        none_counter = 0
 
         status = status_info.get("status")
         req_counts = status_info.get("request_counts", {})
@@ -143,11 +173,16 @@ def process_single_file(
         else:
             print("Файл ошибок отсутствует (вероятно, ошибок не было).")
 
-        # Проверяем успешность попытки
+        # Проверяем статус выполнения
         if final_status == "completed" and results_path:
             _logger.info("Пакет успешно обработан и результаты скачаны.")
             _logger.info(f"Пауза {success_wait} сек. перед следующим файлом.")
             time.sleep(success_wait)
+            return
+
+        # Если статус финальный и неуспешный — нет смысла ретраить
+        if final_status in {"failed", "cancelled", "expired"}:
+            _logger.error(f"Задание {batch_id} завершилось со статусом {final_status}. Повторные попытки прерываются.")
             return
 
         # Если дошли сюда — попытка не удалась
@@ -179,7 +214,7 @@ def main():
     )
     parser.add_argument("--start", type=int, default=1, help="Номер первой части.")
     parser.add_argument(
-        "--end", type=int, default=2, help="Номер последней части (включительно)."
+        "--end", type=int, default=20, help="Номер последней части (включительно)."
     )
     parser.add_argument(
         "--output-dir",
@@ -200,7 +235,7 @@ def main():
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=100,
+        default=5,
         help="Максимальное количество повторных попыток при неудаче обработки пакета.",
     )
     parser.add_argument(

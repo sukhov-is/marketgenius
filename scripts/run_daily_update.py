@@ -5,24 +5,29 @@ from pathlib import Path
 import pandas as pd
 import os
 from dotenv import load_dotenv
+from typing import Optional
+import sys
 
-# Импортируем все наши классы-загрузчики
-from src.data_ingestion.moex_parser import MoexLoader
-# FinancialReportLoader не импортируем, т.к. отчеты обновляются редко
-from src.data_ingestion.indexes_moex import MoexIndexLoader
-from src.data_ingestion.oil_prices_loader import AlphaVantageBrentLoader
-from src.data_ingestion.usd_rub_loader import UsdRubLoader
-from src.data_ingestion.key_rate_loader import KeyRateLoader
+# --- Добавляем корень проекта в sys.path ДО импортов внутренних пакетов --- #
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 # Загружаем переменные окружения из .env файла
 # Ищем .env в текущей директории или выше
-project_root = Path(__file__).resolve().parent.parent # Поднимаемся на уровень выше (в корень проекта)
 dotenv_path = project_root / '.env'
 if dotenv_path.exists():
     load_dotenv(dotenv_path=dotenv_path)
 else:
     # Если .env не найден относительно скрипта, пробуем стандартный поиск
     load_dotenv()
+
+# Импортируем классы-загрузчики проекта
+from src.data_ingestion.moex_parser import MoexLoader
+from src.data_ingestion.indexes_moex import MoexIndexLoader
+from src.data_ingestion.oil_prices_loader import AlphaVantageBrentLoader
+from src.data_ingestion.usd_rub_loader import UsdRubLoader
+from src.data_ingestion.key_rate_loader import KeyRateLoader
 
 def setup_logging(log_level_str: str):
     """Настраивает базовое логирование."""
@@ -112,6 +117,29 @@ def append_to_csv(new_data: Optional[pd.DataFrame], filepath: Path, date_col: st
     except Exception as e:
         logger.exception(f"Ошибка при чтении/добавлении данных в файл {filepath}: {e}")
 
+def get_last_data_date(filepath: Path, date_col: str = "DATE") -> Optional[date]:
+    """Возвращает последнюю дату из указанного CSV файла.
+
+    Args:
+        filepath (Path): путь к CSV.
+        date_col (str): колонка с датой.
+
+    Returns:
+        Optional[date]: последняя дата или None, если файл не существует/пустой/ошибка.
+    """
+    if not filepath.exists():
+        return None
+
+    try:
+        df = pd.read_csv(filepath, usecols=[date_col], parse_dates=[date_col])
+        if df.empty:
+            return None
+        return df[date_col].max().date()
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            f"Не удалось определить последнюю дату в {filepath}: {e}")
+        return None
+
 def main():
     parser = argparse.ArgumentParser(description="Запуск ежедневного обновления данных.")
     parser.add_argument(
@@ -129,7 +157,7 @@ def main():
     parser.add_argument(
         '--companies-config',
         type=str,
-        default='configs/companies_config.json',
+        default='configs/all_companies_config.json',
         help="Путь к JSON файлу конфигурации компаний (по умолчанию: configs/companies_config.json)."
     )
     parser.add_argument(
@@ -152,7 +180,10 @@ def main():
     setup_logging(args.log_level)
     logger = logging.getLogger(__name__) # Получаем логгер
 
-    # Определение даты для загрузки
+    # Дата, до которой загружаем данные (конец диапазона).
+    # 1) Если указана явным аргументом --date, используем её.
+    # 2) Иначе, если текущее время после 19:00 – считаем торговый день завершённым и берём сегодня.
+    # 3) В противном случае берём вчерашний день.
     if args.date:
         try:
             date_to_fetch = datetime.strptime(args.date, '%Y-%m-%d').date()
@@ -160,9 +191,13 @@ def main():
             logger.error(f"Неверный формат даты: {args.date}. Используйте YYYY-MM-DD.")
             return
     else:
-        date_to_fetch = date.today() - timedelta(days=1)
+        now_local = datetime.now()
+        if now_local.hour > 19:
+            date_to_fetch = now_local.date()
+        else:
+            date_to_fetch = (now_local - timedelta(days=1)).date()
 
-    logger.info(f"Загрузка данных за дату: {date_to_fetch}")
+    logger.info(f"Загрузка данных до даты включительно: {date_to_fetch}")
 
     # Определение путей
     base_output_path = Path(args.output_dir)
@@ -191,15 +226,30 @@ def main():
     try:
         moex_loader = MoexLoader(config_path=args.companies_config)
         tickers_to_update = list(moex_loader.companies.keys())
-        logger.info(f"Будут обновлены данные для {len(tickers_to_update)} тикеров.")
+        logger.info(f"Будут проверены {len(tickers_to_update)} тикеров.")
+
         for ticker in tickers_to_update:
-            logger.debug(f"Загрузка MOEX для {ticker} за {date_to_fetch}")
-            df_share = moex_loader.load_security_data(ticker, date_to_fetch, date_to_fetch)
-            if df_share is not None:
-                 ticker_file = moex_output_dir / f"{ticker}_moex_data.csv"
-                 append_to_csv(df_share, ticker_file, date_col='TRADEDATE')
+            ticker_file = moex_output_dir / f"{ticker}_moex_data.csv"
+            last_dt = get_last_data_date(ticker_file, date_col="TRADEDATE")
+
+            if last_dt is None:
+                logger.warning(f"Файл {ticker_file} отсутствует или пуст. Пропускаем обновление для {ticker}.")
+                continue
+
+            start_dt = last_dt + timedelta(days=1)
+
+            if start_dt > date_to_fetch:
+                logger.info(f"Для {ticker} новые данные отсутствуют (последняя дата {last_dt}).")
+                continue
+
+            logger.debug(f"Загрузка MOEX для {ticker} с {start_dt} по {date_to_fetch}")
+            df_share = moex_loader.load_security_data(ticker, start_dt, date_to_fetch)
+
+            if df_share is not None and not df_share.empty:
+                append_to_csv(df_share, ticker_file, date_col="TRADEDATE")
             else:
-                logger.warning(f"Нет данных MOEX для {ticker} за {date_to_fetch}")
+                logger.warning(f"Нет новых данных MOEX для {ticker} в диапазоне {start_dt}-{date_to_fetch}")
+
         logger.info("--- Обновление данных акций MOEX завершено ---")
     except FileNotFoundError:
         logger.error(f"Ошибка: Не найден файл конфигурации компаний: {args.companies_config}")
@@ -210,27 +260,35 @@ def main():
     logger.info("--- Начало обновления индексов MOEX ---")
     try:
         index_loader = MoexIndexLoader(config_path=args.indices_config)
-        indices_to_update = index_loader.indices # Получаем список индексов из загрузчика
-        all_indices_df_today = []
-        logger.info(f"Обновление для {len(indices_to_update)} индексов.")
-        for index_name in indices_to_update:
-             logger.debug(f"Загрузка индекса {index_name} за {date_to_fetch}")
-             df_index = index_loader._fetch_single_index(index_name, date_to_fetch, date_to_fetch)
-             if df_index is not None:
-                  all_indices_df_today.append(df_index)
+        indices_to_update = index_loader.indices
 
-        if all_indices_df_today:
-            # Объединяем данные только за сегодняшний день перед добавлением
-            try:
-                merged_df_today = all_indices_df_today[0]
-                for i in range(1, len(all_indices_df_today)):
-                    merged_df_today = pd.merge(merged_df_today, all_indices_df_today[i], on='DATE', how='outer')
-                # Добавляем объединенные данные дня в общий файл
-                append_to_csv(merged_df_today, indices_output_file, date_col='DATE')
-            except Exception as merge_err:
-                logger.exception(f"Ошибка при объединении или добавлении данных индексов за {date_to_fetch}: {merge_err}")
+        last_dt_idx = get_last_data_date(indices_output_file, date_col="DATE")
+        if last_dt_idx is None:
+            logger.warning(f"Файл индексов {indices_output_file} отсутствует или пуст. Пропускаем обновление индексов.")
         else:
-            logger.warning(f"Нет данных для обновления индексов MOEX за {date_to_fetch}.")
+            start_dt_idx = last_dt_idx + timedelta(days=1)
+
+            if start_dt_idx > date_to_fetch:
+                logger.info("Данные индексов MOEX актуальны, новых дат нет.")
+            else:
+                all_indices_new = []
+                logger.info(f"Загрузка индексов с {start_dt_idx} по {date_to_fetch} для {len(indices_to_update)} индексов.")
+                for index_name in indices_to_update:
+                    df_index = index_loader._fetch_single_index(index_name, start_dt_idx, date_to_fetch)
+                    if df_index is not None and not df_index.empty:
+                        all_indices_new.append(df_index)
+
+                if all_indices_new:
+                    try:
+                        merged = all_indices_new[0]
+                        for df_add in all_indices_new[1:]:
+                            merged = pd.merge(merged, df_add, on="DATE", how="outer")
+                        append_to_csv(merged, indices_output_file, date_col="DATE")
+                    except Exception as merge_err:
+                        logger.exception(f"Ошибка при объединении/добавлении индексов: {merge_err}")
+                else:
+                    logger.warning("Нет новых данных индексов MOEX в указанном диапазоне.")
+
         logger.info("--- Обновление индексов MOEX завершено ---")
     except Exception as e:
         logger.exception(f"Ошибка при обновлении индексов MOEX: {e}")
@@ -240,9 +298,18 @@ def main():
     if alpha_vantage_api_key:
         try:
             oil_loader = AlphaVantageBrentLoader(alpha_vantage_api_key=alpha_vantage_api_key)
-            logger.debug(f"Загрузка Brent (Alpha Vantage) за {date_to_fetch}")
-            df_brent = oil_loader._fetch_brent_prices(date_to_fetch, date_to_fetch)
-            append_to_csv(df_brent, brent_output_file, date_col='DATE')
+
+            last_dt_brent = get_last_data_date(brent_output_file, date_col="DATE")
+            if last_dt_brent is None:
+                logger.warning(f"Файл {brent_output_file} отсутствует или пуст. Пропускаем обновление Brent.")
+            else:
+                start_dt_brent = last_dt_brent + timedelta(days=1)
+                if start_dt_brent > date_to_fetch:
+                    logger.info("Данные Brent актуальны, новых дат нет.")
+                else:
+                    logger.debug(f"Загрузка Brent с {start_dt_brent} по {date_to_fetch}")
+                    df_brent = oil_loader._fetch_brent_prices(start_dt_brent, date_to_fetch)
+                    append_to_csv(df_brent, brent_output_file, date_col="DATE")
             logger.info("--- Обновление цен на нефть (Brent / Alpha Vantage) завершено ---")
         except ValueError as ve:
             logger.error(f"Ошибка инициализации AlphaVantageBrentLoader: {ve}")
@@ -255,9 +322,17 @@ def main():
     logger.info("--- Начало обновления курса USD/RUB ---")
     try:
         usd_rub_loader = UsdRubLoader()
-        logger.debug(f"Загрузка USD/RUB за {date_to_fetch}")
-        df_usd_rub = usd_rub_loader.fetch_rates(date_to_fetch, date_to_fetch)
-        append_to_csv(df_usd_rub, usd_rub_output_file, date_col='DATE')
+        last_dt_usd = get_last_data_date(usd_rub_output_file, date_col="DATE")
+        if last_dt_usd is None:
+            logger.warning(f"Файл {usd_rub_output_file} отсутствует или пуст. Пропускаем USD/RUB.")
+        else:
+            start_dt_usd = last_dt_usd + timedelta(days=1)
+            if start_dt_usd > date_to_fetch:
+                logger.info("Данные USD/RUB актуальны, новых дат нет.")
+            else:
+                logger.debug(f"Загрузка USD/RUB с {start_dt_usd} по {date_to_fetch}")
+                df_usd_rub = usd_rub_loader.fetch_rates(start_dt_usd, date_to_fetch)
+                append_to_csv(df_usd_rub, usd_rub_output_file, date_col="DATE")
         logger.info("--- Обновление курса USD/RUB завершено ---")
     except Exception as e:
         logger.exception(f"Ошибка при обновлении курса USD/RUB: {e}")
@@ -266,11 +341,17 @@ def main():
     logger.info("--- Начало обновления истории ключевой ставки ---")
     try:
         key_rate_loader = KeyRateLoader()
-        # Ключевая ставка не меняется каждый день, но запрос безопасен
-        logger.debug(f"Загрузка Key Rate за {date_to_fetch}")
-        df_key_rate = key_rate_loader.fetch_key_rate(date_to_fetch, date_to_fetch)
-        # Добавляем, только если были изменения (хотя append_to_csv сам справится с дубликатами)
-        append_to_csv(df_key_rate, key_rate_output_file, date_col='DATE')
+        last_dt_key = get_last_data_date(key_rate_output_file, date_col="DATE")
+        if last_dt_key is None:
+            logger.warning(f"Файл {key_rate_output_file} отсутствует или пуст. Пропускаем обновление ключевой ставки.")
+        else:
+            start_dt_key = last_dt_key + timedelta(days=1)
+            if start_dt_key > date_to_fetch:
+                logger.info("Данные ключевой ставки актуальны, новых дат нет.")
+            else:
+                logger.debug(f"Загрузка Key Rate с {start_dt_key} по {date_to_fetch}")
+                df_key_rate = key_rate_loader.fetch_key_rate(start_dt_key, date_to_fetch)
+                append_to_csv(df_key_rate, key_rate_output_file, date_col="DATE")
         logger.info("--- Обновление ключевой ставки завершено ---")
     except Exception as e:
         logger.exception(f"Ошибка при обновлении ключевой ставки: {e}")

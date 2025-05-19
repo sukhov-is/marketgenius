@@ -384,7 +384,7 @@ class GPTNewsAnalyzer:
         }
 
         final_summary = final_summary_prefix + " ".join(filter(None, summaries))
-        max_summary_len = 1000
+        max_summary_len = 100000
         if len(final_summary) > max_summary_len:
             final_summary = final_summary[:max_summary_len-3] + "..."
 

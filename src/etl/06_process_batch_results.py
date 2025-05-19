@@ -42,6 +42,7 @@ def main():
 
     # Обязательный аргумент для вывода
     parser.add_argument("--output-csv", default='data/processed/gpt/results_gpt_news.csv', help="Путь для сохранения итогового CSV файла.")
+    parser.add_argument("--append", action="store_true", help="Если указан этот флаг и файл CSV уже существует, новые данные будут дозаписаны (append) к существующим вместо перезаписи.")
 
     args = parser.parse_args()
 
@@ -130,9 +131,28 @@ def main():
         if not final_df.empty:
             # Сохраняем итоговый CSV
             output_csv_path.parent.mkdir(parents=True, exist_ok=True)
-            final_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig') # utf-8-sig для Excel
-            print(f"\nУспешно! Итоговый DataFrame ({len(final_df)} строк) сохранен в: {output_csv_path}")
-            _logger.info(f"--- Обработка результатов завершена успешно. Сохранено в {output_csv_path} ---")
+
+            if args.append and output_csv_path.is_file():
+                try:
+                    existing_df = pd.read_csv(output_csv_path, encoding="utf-8-sig")
+                    combined_df = pd.concat([existing_df, final_df], ignore_index=True)
+                    combined_df.to_csv(output_csv_path, index=False, encoding="utf-8-sig")
+                    _logger.info(
+                        f"К существующему CSV ({len(existing_df)} строк) добавлено {len(final_df)} строк. Итог: {len(combined_df)}."
+                    )
+                except Exception as e:
+                    _logger.error(f"Не удалось дозаписать данные в {output_csv_path}: {e}")
+                    print(f"\nОшибка при дозаписи данных: {e}. Попробуйте запустить без флага --append.")
+                    sys.exit(1)
+            else:
+                final_df.to_csv(output_csv_path, index=False, encoding="utf-8-sig")  # utf-8-sig для Excel
+
+            print(
+                f"\nУспешно! Итоговый DataFrame ({len(final_df)} строк) сохранен в: {output_csv_path}"
+            )
+            _logger.info(
+                f"--- Обработка результатов завершена успешно. Сохранено в {output_csv_path} ---"
+            )
         else:
             print("\nНе удалось создать итоговый DataFrame из результатов (возможно, все запросы завершились с ошибкой, файлы пусты или произошла ошибка обработки).")
             _logger.warning("--- Обработка результатов завершена, но итоговый DataFrame пуст ---")

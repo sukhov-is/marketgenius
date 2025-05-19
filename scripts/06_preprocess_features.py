@@ -9,15 +9,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # -- Константы --
 INPUT_DIR = 'data/processed/final_features'
 OUTPUT_DIR = 'data/processed/ready_for_training'
-START_DATE = '2019-01-01'
-END_DATE = '2025-04-11' # Новая константа для конечной даты
+START_DATE = '2019-02-01'
+END_DATE: str | None = None  # Нет обрезки по верхней границе, можно задать вручную
 DATE_COL = 'DATE'
 CLOSE_COL = 'CLOSE'
 TARGET_PREFIX = 'target_'
 PREDICTION_HORIZONS = [1, 3, 7, 30, 180] # Горизонты прогнозирования в днях
 
 # -- Функция обработки одного файла --
-def process_ticker_data(input_path: str, output_path: str, start_date_str: str, end_date_str: str, horizons: List[int]) -> bool:
+def process_ticker_data(input_path: str, output_path: str, start_date_str: str, end_date_str: str | None, horizons: List[int]) -> bool:
     """
     Загружает, обрабатывает и сохраняет данные для одного тикера.
 
@@ -25,7 +25,7 @@ def process_ticker_data(input_path: str, output_path: str, start_date_str: str, 
         input_path: Путь к исходному CSV файлу.
         output_path: Путь для сохранения обработанного CSV файла.
         start_date_str: Начальная дата для фильтрации данных (YYYY-MM-DD).
-        end_date_str: Конечная дата для фильтрации данных (YYYY-MM-DD).
+        end_date_str: Конечная дата для фильтрации данных (YYYY-MM-DD) или None для отсутствия обрезки.
         horizons: Список горизонтов прогнозирования в днях.
 
     Returns:
@@ -55,12 +55,15 @@ def process_ticker_data(input_path: str, output_path: str, start_date_str: str, 
         if df.empty:
             logging.warning(f"Нет данных после {start_date_str} в {input_path}. Пропуск файла.")
             return False
-        # Добавляем обрезку по конечной дате
-        df = df[df.index <= end_date_str]
-        if df.empty:
-            logging.warning(f"Нет данных в диапазоне {start_date_str} - {end_date_str} в {input_path}. Пропуск файла.")
-            return False
-        logging.debug(f"Данные обрезаны по диапазону дат [{start_date_str}, {end_date_str}]. Строк осталось: {len(df)}")
+        # Если указана конечная дата – обрезаем сверху
+        if end_date_str is not None:
+            df = df[df.index <= end_date_str]
+            if df.empty:
+                logging.warning(f"Нет данных в диапазоне {start_date_str} - {end_date_str} в {input_path}. Пропуск файла.")
+                return False
+            logging.debug(
+                f"Данные обрезаны по диапазону дат [{start_date_str}, {end_date_str}]. Строк осталось: {len(df)}"
+            )
 
         # 2. Обрезка начальных пропусков в CLOSE
         first_valid_close_index = df[CLOSE_COL].first_valid_index()
@@ -83,31 +86,24 @@ def process_ticker_data(input_path: str, output_path: str, start_date_str: str, 
             target_cols.append(target_col_name)
         logging.debug(f"Созданы целевые столбцы: {target_cols}")
 
-        # 4. Обработка пропусков признаков (до удаления строк с NaN таргетами)
-        # Удаляем столбцы, которые могли стать полностью NaN из-за обрезки
+        # 4. Удаляем столбцы, которые полностью состоят из NaN (например, метрики, которых нет у компании)
         initial_cols = df.shape[1]
         df.dropna(axis=1, how='all', inplace=True)
         if df.shape[1] < initial_cols:
-             logging.debug(f"Удалено {initial_cols - df.shape[1]} полностью пустых столбцов перед ffill/bfill.")
+             logging.debug(f"Удалено {initial_cols - df.shape[1]} полностью пустых столбцов.")
 
-        # Заполнение пропусков в признаках
-        df.ffill(inplace=True)
-        df.bfill(inplace=True) # Заполняем NaN в начале, если остались
-        logging.debug("Пропуски в признаках заполнены с помощью ffill и bfill.")
+        # ВАЖНО: пропуски (NaN) в признаках и таргетах НЕ заполняем и НЕ удаляем.
+        # Для обучения моделью можно отдельно фильтровать строки, где конкретный target_horizon не NaN.
+        # Для предсказания на "сегодня" значения target_*d будут NaN — это ожидаемо, модель
+        # просто выдаст прогноз.
 
-        # 5. Удаление строк с NaN в *любом* из таргетов
-        initial_rows = len(df)
-        df.dropna(subset=target_cols, inplace=True, how='any')
-        if len(df) < initial_rows:
-             logging.debug(f"Удалено {initial_rows - len(df)} строк с NaN в целевых переменных.")
-
-        # 6. Удаление полностью пустых столбцов (если вдруг появились снова)
+        # 5. Удаление полностью пустых столбцов ещё раз (если вдруг появились после расчёта target'ов)
         initial_cols = df.shape[1]
         df.dropna(axis=1, how='all', inplace=True)
         if df.shape[1] < initial_cols:
              logging.debug(f"Удалено {initial_cols - df.shape[1]} полностью пустых столбцов после обработки NaN.")
 
-        # Финальная проверка на пустоту
+        # Финальная проверка на пустоту DataFrame (может случиться, если после фильтраций не осталось строк)
         if df.empty:
              logging.warning(f"DataFrame стал пустым после всех операций для {input_path}. Файл не будет сохранен.")
              return False

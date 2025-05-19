@@ -135,17 +135,33 @@ def process_news_file(args):
     logger.info("Начало обработки файла с новостями")
     clusterer = Clusterer(args.config)
 
+    # Минимальная дата для кластеризации, если указана
+    min_dt: Optional[pd.Timestamp] = None
+    if getattr(args, "min_datetime", None):
+        try:
+            # Делаем дату явно tz-aware в UTC, чтобы избежать ошибок сравнения
+            min_dt = pd.to_datetime(args.min_datetime, utc=True)
+        except Exception as exc:
+            logger.error("Некорректный формат --min-datetime: %s", args.min_datetime)
+            raise exc
+
     # Читаем весь файл для определения временного диапазона
     df_dates = pd.read_csv(args.csv_file, usecols=['datetime'], encoding='utf-8')
-    df_dates['datetime'] = pd.to_datetime(df_dates['datetime'])
+    df_dates['datetime'] = pd.to_datetime(df_dates['datetime'], utc=True)
+    if min_dt is not None:
+        df_dates = df_dates[df_dates['datetime'] >= min_dt]
     
-    start_date = df_dates['datetime'].min().normalize()
-    end_date = df_dates['datetime'].max()
+    start_date = df_dates['datetime'].min().normalize() if not df_dates.empty else None
+    if min_dt is not None and start_date is not None:
+        start_date = max(start_date, min_dt.normalize())
+    if start_date is None:
+        logger.warning("Нет данных для кластеризации после указанной даты")
+        return
     
     # Вычисляем общее количество окон
     window_size = timedelta(days=args.window_days)
     window_step = timedelta(days=args.window_step)
-    total_windows = int((end_date - start_date).total_seconds() / window_step.total_seconds())
+    total_windows = int((df_dates['datetime'].max() - start_date).total_seconds() / window_step.total_seconds())
     
     logger.info(f"Общее количество окон для обработки: {total_windows}")
     
@@ -158,7 +174,15 @@ def process_news_file(args):
     with tqdm(total=total_windows, desc="Обработка окон") as window_pbar:
         for chunk in pd.read_csv(args.csv_file, chunksize=chunksize, encoding='utf-8'):
             # Приводим дату к нужному типу
-            chunk['datetime'] = pd.to_datetime(chunk['datetime'])
+            chunk['datetime'] = pd.to_datetime(chunk['datetime'], utc=True)
+            
+            # Отбрасываем строки раньше min_dt, если указано
+            if min_dt is not None:
+                chunk = chunk[chunk['datetime'] >= min_dt]
+
+            # Если после фильтрации чанка нет данных – переходим к следующему
+            if chunk.empty:
+                continue
             
             # Объединяем с данными из буфера
             if not buffer_df.empty:
@@ -204,7 +228,10 @@ def process_news_file(args):
     # Сохранение результатов
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
-        all_clusters_file = os.path.join(args.output_dir, "all_clusters.json")
+        if args.prefix:
+            all_clusters_file = os.path.join(args.output_dir, f"all_clusters_{args.prefix}.json")
+        else:
+            all_clusters_file = os.path.join(args.output_dir, "all_clusters.json")
         
         # Получаем все кластеры
         final_clusters = clusterer.all_clusters
@@ -222,7 +249,10 @@ def process_news_file(args):
         logger.info(f"Найдено всего кластеров: {len(final_clusters)}")
         logger.info(f"Результаты сохранены в директорию: {args.output_dir}")
 
-        csv_output_file = os.path.join(args.output_dir, "representative_news.csv")
+        if args.prefix:
+            csv_output_file = os.path.join(args.output_dir, f"representative_{args.prefix}.csv")
+        else:
+            csv_output_file = os.path.join(args.output_dir, "representative_news.csv")
         save_representative_news_to_csv(final_clusters, csv_output_file)
         logger.info(f"CSV файл с информативными новостями сохранен в {csv_output_file}")
     
@@ -248,6 +278,9 @@ if __name__ == "__main__":
     parser.add_argument("--dup-threshold", type=float, 
                       default=0.  ,
                       help="Порог определения дубликатов")
+    parser.add_argument("--min-datetime", type=str, default=None,
+                      help="Минимальная дата (YYYY-MM-DD), с которой выполнять кластеризацию")
+    parser.add_argument("--prefix", type=str, default="", help="Префикс для имени выходных файлов (например news или blogs)")
     
     args = parser.parse_args()
     

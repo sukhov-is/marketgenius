@@ -13,7 +13,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
 MERGED_FEATURES_DIR = os.path.join(PROJECT_ROOT, "data/processed/merged_features")
-REFERENCE_DATA_DIR = os.path.join(PROJECT_ROOT, "data/reference")
+REFERENCE_DATA_DIR = os.path.join(PROJECT_ROOT, "data/raw/reference")
 FINAL_FEATURES_DIR = os.path.join(PROJECT_ROOT, "data/processed/final_features")
 ISSUE_SIZE_FILE = os.path.join(REFERENCE_DATA_DIR, "issue_sizes.csv")
 

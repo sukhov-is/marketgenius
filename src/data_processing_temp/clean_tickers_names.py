@@ -5,8 +5,8 @@ from fuzzywuzzy import process # Для нечеткого сопоставле�
 
 # Пути к файлам
 config_file_path = 'configs/all_companies_config.json'
-input_csv_path = 'data/processed/gpt/results_gpt_news_20250516_014203.csv' # Убедитесь, что это правильный путь к вашему файлу
-output_csv_path = 'data/processed/gpt/results_gpt_news.csv' # Изменено имя выходного файла
+input_csv_path = 'data/processed/gpt/results_gpt_blogs.csv' # Убедитесь, что это правильный путь к вашему файлу
+output_csv_path = 'data/processed/gpt/results_gpt_blogs.csv' # Изменено имя выходного файла
 
 # Параметр для нечеткого сопоставления
 FUZZY_MATCH_SCORE_CUTOFF = 85 # Порог схожести (0-100)

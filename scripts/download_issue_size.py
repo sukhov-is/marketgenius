@@ -19,7 +19,7 @@ OUTPUT_FILE = os.path.join(REFERENCE_DATA_DIR, "issue_sizes.csv")
 MOEX_API_URL = "https://iss.moex.com/iss/securities/{security}.json"
 REQUEST_DELAY_SECONDS = 0.5 # Задержка между запросами к API
 
-COMPANIES_CONFIG_PATH = os.path.join(PROJECT_ROOT, "configs/companies_config.json")
+COMPANIES_CONFIG_PATH = os.path.join(PROJECT_ROOT, "configs/all_companies_config.json")
 
 def get_tickers_from_config(config_file):
     """Получает список уникальных тикеров из файла конфигурации companies_config.json."""

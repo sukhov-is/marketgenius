@@ -16,8 +16,8 @@ WEIGHT_WORKING = 0.3 # Должно быть 1.0 - WEIGHT_NON_WORKING
 
 # Новые конфигурационные переменные для индексов
 FILE_TICKERS_INDICES = 'data/processed/tickers_indices.csv'
-WEIGHT_MOEX_INDEX = 0.3
-WEIGHT_OTHER_INDICES_AVG = 0.7
+WEIGHT_MOEX_INDEX = 0.5
+WEIGHT_OTHER_INDICES_AVG = 0.5
 
 # Окна для скользящих средних
 ROLLING_AVERAGE_WINDOWS = [5, 15, 30]
@@ -106,7 +106,7 @@ def function_C_aggregate_scores_weighted(
         else:
             buffer_non_working_scores.append(current_score_value)
             
-    return result_series.fillna(0)
+    return result_series
 
 def function_D_calculate_rolling_averages(
     df: pd.DataFrame,
@@ -117,7 +117,7 @@ def function_D_calculate_rolling_averages(
     for window in window_sizes:
         temp_series = df[score_column_name].replace(0, np.nan)
         rolling_avg = temp_series.rolling(window=window, min_periods=1).mean()
-        df[f'{score_column_name}_roll_avg_{window}'] = rolling_avg.fillna(0)
+        df[f'{score_column_name}_roll_avg_{window}'] = rolling_avg
     return df
 
 def function_E_load_ticker_to_indices_map(file_path: str) -> dict[str, list[str]]:
@@ -249,26 +249,26 @@ def main():
                     #     print(f"      Предупреждение: Индекс {index_name} не найден в {source_name} для тикера {ticker_name}.")
 
                 # Расчет итоговой взвешенной индексной оценки
-                final_weighted_index_score_series = pd.Series(0, index=ticker_df.index, dtype=float)
+                final_weighted_index_score_series = pd.Series(index=ticker_df.index, dtype=float)
 
                 avg_other_indices_score_series = None
                 if other_indices_aggregated_series_list:
                     # Создаем DataFrame из списка серий и считаем среднее по строкам, игнорируя NaN
                     temp_df_others = pd.concat(other_indices_aggregated_series_list, axis=1)
-                    avg_other_indices_score_series = temp_df_others.mean(axis=1).fillna(0)
+                    avg_other_indices_score_series = temp_df_others.mean(axis=1)
 
 
                 if moex_aggregated_series is not None and avg_other_indices_score_series is not None:
-                    final_weighted_index_score_series = (moex_aggregated_series.fillna(0) * WEIGHT_MOEX_INDEX) + \
-                                                        (avg_other_indices_score_series.fillna(0) * WEIGHT_OTHER_INDICES_AVG)
+                    final_weighted_index_score_series = (moex_aggregated_series * WEIGHT_MOEX_INDEX) + \
+                                                        (avg_other_indices_score_series * WEIGHT_OTHER_INDICES_AVG)
                 elif moex_aggregated_series is not None: # Только MOEX доступен
-                    final_weighted_index_score_series = moex_aggregated_series.fillna(0)
+                    final_weighted_index_score_series = moex_aggregated_series
                 elif avg_other_indices_score_series is not None: # Только другие индексы доступны
-                    final_weighted_index_score_series = avg_other_indices_score_series.fillna(0)
+                    final_weighted_index_score_series = avg_other_indices_score_series
                 # Если ничего не доступно, остается серия нулей
 
                 weighted_index_col_name = f'WeightedIndices{suffix}_score'
-                ticker_df[weighted_index_col_name] = final_weighted_index_score_series.fillna(0) # Дополнительное fillna на всякий случай
+                ticker_df[weighted_index_col_name] = final_weighted_index_score_series
                 print(f"      Добавлена колонка взвешенных оценок индексов: {weighted_index_col_name}")
 
                 ticker_df = function_D_calculate_rolling_averages(

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -74,7 +76,7 @@ def load_channels(content_type: str) -> Dict[str, str]:
         return {}
 
 class TelegramParser:
-    def __init__(self, session_name: str, api_id: str, api_hash: str, phone: str, content_type: str):
+    def __init__(self, session_name: str, api_id: str, api_hash: str, phone: str, content_type: str, last_datetime: datetime | None = None, *, remove_session_file: bool = True):
         """
         Инициализация парсера Telegram.
 
@@ -84,6 +86,8 @@ class TelegramParser:
             api_hash (str): API Hash от Telegram
             phone (str): Номер телефона для аутентификации
             content_type (str): Тип контента ('news' или 'blogs')
+            last_datetime (datetime | None): Дата последней успешно загруженной новости (используется для инкрементальной выгрузки)
+            remove_session_file (bool): Флаг для удаления файла сессии после завершения работы
         """
         self.session_name = session_name
         self.api_id = api_id
@@ -94,6 +98,8 @@ class TelegramParser:
         self.messages: List[Dict] = []
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
         self.session_file = f"{session_name}.session"  # Добавляем путь к файлу сессии
+        self.last_datetime = last_datetime
+        self.remove_session_file = remove_session_file
 
     async def init_client(self) -> None:
         """Инициализация клиента с повторными попытками"""
@@ -126,6 +132,9 @@ class TelegramParser:
         current_wait_time = WAIT_TIME  # Начальное значение паузы
         consecutive_errors = 0
         
+        # Если указана дата последней записи, меняем направление обхода на «сначала новые»
+        iterate_reverse = self.last_datetime is None
+
         for attempt in range(max_retries):
             try:
                 logger.info(f"Начало обработки канала: {channel_name}")
@@ -137,8 +146,13 @@ class TelegramParser:
                 async for message in self.client.iter_messages(
                     entity,
                     limit=None,
-                    reverse=True
+                    # Если last_datetime не задана, берём старую логику (от старых к новым).
+                    reverse=iterate_reverse
                 ):
+                    # Пропускаем сообщения, которые уже есть в датасете
+                    if self.last_datetime and message.date <= self.last_datetime:
+                        # Поскольку мы читаем от новых к старым, можно прервать цикл
+                        break
                     if message.message:
                         batch.append({
                             'datetime': message.date,
@@ -232,7 +246,7 @@ class TelegramParser:
             await self.client.disconnect()
             logger.info("Клиент Telegram отключен")
         
-        if os.path.exists(self.session_file):
+        if self.remove_session_file and os.path.exists(self.session_file):
             try:
                 os.remove(self.session_file)
                 logger.info(f"Файл сессии {self.session_file} удален")
@@ -300,29 +314,41 @@ async def main():
             print("Неверный ввод. Пожалуйста, используйте n, b или a.")
 
     try:
-        if content_type in ["news", "all"]:
-            # Уникальное имя сессии для новостей
-            news_session = f"{session_base_name}_news_{datetime.now().strftime('%H%M%S')}"
+        if content_type == "all":
+            # Одна общая сессия для обоих типов контента
+            shared_session = f"{session_base_name}_all_{datetime.now().strftime('%H%M%S')}"
+
             news_parser = TelegramParser(
-                session_name=news_session,
+                session_name=shared_session,
                 api_id=API_ID,
                 api_hash=API_HASH,
                 phone=PHONE,
-                content_type="news"
+                content_type="news",
+                remove_session_file=False,  # Не удаляем, будет использоваться повторно
             )
             await news_parser.run()
 
-        if content_type in ["blogs", "all"]:
-            # Уникальное имя сессии для блогов
-            blogs_session = f"{session_base_name}_blogs_{datetime.now().strftime('%H%M%S')}"
             blogs_parser = TelegramParser(
-                session_name=blogs_session,
+                session_name=shared_session,
                 api_id=API_ID,
                 api_hash=API_HASH,
                 phone=PHONE,
-                content_type="blogs"
+                content_type="blogs",
+                remove_session_file=True,  # После блогов удаляем
             )
             await blogs_parser.run()
+
+        else:
+            # Обработка одного типа контента, сессия удаляется после завершения
+            single_session = f"{session_base_name}_{content_type}_{datetime.now().strftime('%H%M%S')}"
+            single_parser = TelegramParser(
+                session_name=single_session,
+                api_id=API_ID,
+                api_hash=API_HASH,
+                phone=PHONE,
+                content_type=content_type,
+            )
+            await single_parser.run()
 
     except Exception as e:
         logger.critical(f"Программа завершилась с ошибкой: {e}")
