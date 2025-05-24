@@ -4,17 +4,21 @@ import glob
 import re
 from datetime import datetime, date
 import numpy as np
+from pathlib import Path
 
 # --- Константы ---
 # Получаем директорию, где находится сам скрипт
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Предполагаем, что корень проекта на один уровень выше папки scripts
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+# PROJECT_ROOT = os.path.dirname(SCRIPT_DIR) # Старое неверное определение
 
-RAW_REPORTS_DIR = os.path.join(PROJECT_ROOT, "data/raw/financial_reports")
-PROCESSED_FEATURES_DIR = os.path.join(PROJECT_ROOT, "data/processed/financial_features")
-QUARTERLY_DIR = os.path.join(RAW_REPORTS_DIR, "quarterly")
-YEARLY_DIR = os.path.join(RAW_REPORTS_DIR, "yearly")
+# Корректное определение корня проекта
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+RAW_REPORTS_DIR = PROJECT_ROOT / "data" / "raw" / "financial_reports"
+PROCESSED_FEATURES_DIR = PROJECT_ROOT / "data" / "processed" / "financial_features"
+QUARTERLY_DIR = RAW_REPORTS_DIR / "quarterly"
+YEARLY_DIR = RAW_REPORTS_DIR / "yearly"
 
 # Словарь для поиска метрик в отчетах
 METRIC_NAMES_MAP = {

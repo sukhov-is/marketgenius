@@ -4,6 +4,8 @@ from pathlib import Path
 import os # Добавляем os
 from dotenv import load_dotenv # Добавляем dotenv
 import sys # <-- Добавляем sys
+from datetime import datetime, timedelta # <-- Добавляем datetime и timedelta
+import pandas as pd # <-- Добавляем pandas
 
 # Определяем корневую директорию проекта
 project_root = Path(__file__).resolve().parent.parent.parent
@@ -22,6 +24,60 @@ except ImportError as e:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 _logger = logging.getLogger(__name__)
+
+def get_latest_date_from_csv(file_path: Path, date_column_name: str) -> datetime | None:
+    """
+    Читает CSV файл (предполагая, что он отсортирован по дате возрастанию)
+    и возвращает самую позднюю дату из указанной колонки.
+    Берется дата из последней валидной строки последнего обработанного чанка.
+    Читает файл чанками для эффективности по памяти.
+    """
+    latest_date_obj = None # Инициализируем None
+    if not file_path.is_file():
+        _logger.warning(f"Файл истории {file_path} не найден при попытке определения последней даты.")
+        return None
+
+    try:
+        # latest_date_obj будет обновляться датой из последней строки каждого непустого чанка.
+        # Т.к. файл отсортирован, после цикла здесь будет дата из последней строки последнего непустого чанка.
+        for chunk_df in pd.read_csv(file_path, chunksize=10000, usecols=[date_column_name], low_memory=False):
+            if chunk_df.empty:
+                continue
+            
+            chunk_df[date_column_name] = pd.to_datetime(
+                chunk_df[date_column_name], 
+                errors='coerce', # Невалидные даты станут NaT
+                infer_datetime_format=True 
+            )
+            chunk_df.dropna(subset=[date_column_name], inplace=True) # Удаляем строки, где дата не распозналась (NaT)
+
+            if not chunk_df.empty:
+                # Поскольку файл отсортирован, последняя дата в этом валидном чанке
+                # является кандидатом на самую последнюю дату в файле.
+                # При обработке последующих чанков это значение будет перезаписано,
+                # если они также содержат валидные даты.
+                latest_date_obj = chunk_df[date_column_name].iloc[-1]
+        
+        # После цикла latest_date_obj будет содержать дату из последней валидной строки
+        # последнего непустого чанка (если таковые были).
+
+    except FileNotFoundError:
+         _logger.warning(f"Файл истории {file_path} не найден при попытке чтения pandas.")
+         return None
+    except pd.errors.EmptyDataError:
+        _logger.info(f"Файл истории {file_path} пуст.")
+        return None
+    except KeyError:
+        _logger.error(f"Колонка с датой '{date_column_name}' не найдена в файле {file_path}.")
+        return None
+    except Exception as e:
+        _logger.error(f"Ошибка при чтении CSV файла {file_path} для определения последней даты: {e}")
+        return None
+    
+    if pd.isna(latest_date_obj):
+        return None
+    # Преобразуем pd.Timestamp в datetime.datetime
+    return latest_date_obj.to_pydatetime() if isinstance(latest_date_obj, pd.Timestamp) else latest_date_obj
 
 def main():
     parser = argparse.ArgumentParser(description="Подготовка .jsonl файла для OpenAI Batch API.")
@@ -44,6 +100,35 @@ def main():
     parser.add_argument("--end-date", default=None, help="Конечная дата для фильтрации (YYYY-MM-DD).")
 
     args = parser.parse_args()
+
+    # Автоматическое определение start_date, если он не задан явно
+    if args.start_date is None:
+        _logger.info("Аргумент --start-date не указан, пытаемся определить автоматически...")
+        
+        # Имя колонки с датой в этих CSV файлах (из args)
+        date_column_name_in_csv = "date" 
+
+        # Конструируем путь к соответствующему файлу истории на основе prompt-type
+        # Это делает определение даты специфичным для текущего типа данных (blogs/news)
+        if not args.prompt_type:
+            _logger.warning("Не указан --prompt-type, невозможно точно определить файл истории для автоматического определения даты.")
+            final_latest_date = None
+        else:
+            history_file_name = f"results_gpt_{args.prompt_type}.csv"
+            history_file_csv_path = project_root / "data/processed/gpt" / history_file_name
+            _logger.info(f"Попытка загрузить последнюю дату из файла: {history_file_csv_path} для prompt_type='{args.prompt_type}'")
+            final_latest_date = get_latest_date_from_csv(history_file_csv_path, date_column_name_in_csv)
+
+        if final_latest_date:
+            # Новая начальная дата = последняя найденная дата + 1 день
+            # Убедимся, что время обнулено перед добавлением дня и форматированием
+            new_start_date_dt = final_latest_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            args.start_date = new_start_date_dt.strftime("%Y-%m-%d")
+            _logger.info(f"Автоматически определена начальная дата из CSV: {args.start_date}")
+        else:
+            _logger.warning("Не удалось автоматически определить начальную дату из CSV. Обработка начнется с данных, указанных по умолчанию или без фильтра по начальной дате.")
+    else:
+        _logger.info(f"Используется явно указанная начальная дата: {args.start_date}")
 
     # Загрузка API ключа (хотя он не нужен для подготовки, хорошо иметь его проверку)
     load_dotenv(dotenv_path=project_root / '.env')

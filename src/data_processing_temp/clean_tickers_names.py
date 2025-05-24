@@ -5,8 +5,8 @@ from fuzzywuzzy import process # Для нечеткого сопоставле�
 
 # Пути к файлам
 config_file_path = 'configs/all_companies_config.json'
-input_csv_path = 'data/processed/gpt/results_gpt_blogs.csv' # Убедитесь, что это правильный путь к вашему файлу
-output_csv_path = 'data/processed/gpt/results_gpt_blogs.csv' # Изменено имя выходного файла
+input_csv_path = 'data/processed/gpt/telegram_news.csv' # Убедитесь, что это правильный путь к вашему файлу
+output_csv_path = 'data/processed/gpt/telegram_news.csv' # Изменено имя выходного файла
 
 # Параметр для нечеткого сопоставления
 FUZZY_MATCH_SCORE_CUTOFF = 85 # Порог схожести (0-100)
@@ -64,7 +64,7 @@ try:
     for ticker in all_canonical_tickers_companies + all_canonical_tickers_indices:
         known_normalized_canonical_tickers_map[normalize_for_matching(ticker)] = ticker
 
-    preserved_columns = ['date', 'summary']
+    preserved_columns = ['date', 'tg_summary']
     cleaned_df_columns = {} 
 
     for col in preserved_columns:

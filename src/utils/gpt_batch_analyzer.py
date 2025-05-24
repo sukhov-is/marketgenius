@@ -534,13 +534,20 @@ def process_batch_output(
     _logger.info("Группировка и объединение результатов по дням...")
     for custom_id, result in all_results.items():
         try:
-            # Ожидаемый формат custom_id: date_YYYY-MM-DD_chunk_N
+            # Поддерживаем оба формата custom_id:
+            # 1) date_YYYY-MM-DD_chunk_N (старый)
+            # 2) date_YYYY-MM-DD          (агрегированные дневные summary)
             parts = custom_id.split("_")
-            if len(parts) >= 3 and parts[0] == 'date':
-                date_str = parts[1]
-                daily_data.setdefault(date_str, []).append(result)
+            if parts and parts[0] == 'date':
+                # Если шаблон содержит chunk, дата всегда во второй части
+                # Если chunk отсутствует, вторая часть также содержит дату
+                if len(parts) >= 2:
+                    date_str = parts[1]
+                    daily_data.setdefault(date_str, []).append(result)
+                else:
+                    _logger.warning(f"custom_id '{custom_id}' не содержит даты после префикса 'date_'.")
             else:
-                 _logger.warning(f"Не удалось извлечь дату из custom_id '{custom_id}'. Результат будет пропущен при агрегации.")
+                _logger.warning(f"Не удалось извлечь дату из custom_id '{custom_id}'. Результат будет пропущен при агрегации.")
         except Exception as e:
             _logger.error(f"Ошибка при извлечении даты из custom_id '{custom_id}': {e}")
 
@@ -551,7 +558,7 @@ def process_batch_output(
         error_summaries = []
         for i, part in enumerate(parts):
              # Проверяем, что это словарь и есть нужные ключи, и summary не начинается с ERROR:
-            if isinstance(part, dict) and "impact" in part and "summary" in part and not str(part["summary"]).strip().startswith("ERROR"):
+            if isinstance(part, dict) and "summary" in part and not str(part["summary"]).strip().startswith("ERROR"):
                 valid_parts.append(part)
             else:
                 error_summary = part.get("summary", f"Unknown error in part {i+1}") if isinstance(part, dict) else f"Invalid data structure in part {i+1}: {part}"

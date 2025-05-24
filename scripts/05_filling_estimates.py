@@ -11,16 +11,14 @@ FILE_NEWS_SCORES = 'data/processed/gpt/results_gpt_news.csv'
 DIR_OUTPUT = 'data/features_final/'
 
 # Веса для агрегации оценок (рабочий день vs нерабочие)
-WEIGHT_NON_WORKING = 0.7
-WEIGHT_WORKING = 0.3 # Должно быть 1.0 - WEIGHT_NON_WORKING
+WEIGHT_NON_WORKING = 0.6
+WEIGHT_WORKING = 0.4 # Должно быть 1.0 - WEIGHT_NON_WORKING
 
 # Новые конфигурационные переменные для индексов
 FILE_TICKERS_INDICES = 'data/processed/tickers_indices.csv'
-WEIGHT_MOEX_INDEX = 0.5
-WEIGHT_OTHER_INDICES_AVG = 0.5
 
 # Окна для скользящих средних
-ROLLING_AVERAGE_WINDOWS = [5, 15, 30]
+ROLLING_AVERAGE_WINDOWS = [15, 50]
 
 def function_A_load_scores(score_file_path: str) -> pd.DataFrame | None:
     """Загружает и предварительно обрабатывает DataFrame с оценками."""
@@ -101,7 +99,7 @@ def function_C_aggregate_scores_weighted(
                     final_score_for_this_date = (original_score_this_working_day * weight_working) + \
                                                 (avg_buffered_score * weight_non_working)
             
-            result_series.loc[current_date] = final_score_for_this_date
+            result_series.loc[current_date] = round(final_score_for_this_date, 2) if pd.notna(final_score_for_this_date) else final_score_for_this_date
             buffer_non_working_scores = []
         else:
             buffer_non_working_scores.append(current_score_value)
@@ -117,7 +115,7 @@ def function_D_calculate_rolling_averages(
     for window in window_sizes:
         temp_series = df[score_column_name].replace(0, np.nan)
         rolling_avg = temp_series.rolling(window=window, min_periods=1).mean()
-        df[f'{score_column_name}_roll_avg_{window}'] = rolling_avg
+        df[f'{score_column_name}_roll_avg_{window}'] = rolling_avg.round(2)
     return df
 
 def function_E_load_ticker_to_indices_map(file_path: str) -> dict[str, list[str]]:
@@ -210,7 +208,7 @@ def main():
                     WEIGHT_WORKING
                 )
                 
-                agg_score_col_name = f'{ticker_name}{suffix}_score'
+                agg_score_col_name = f'aggregated_score{suffix}'
                 ticker_df[agg_score_col_name] = aggregated_scores_series
                 print(f"    Добавлена колонка агрегированных оценок тикера: {agg_score_col_name}")
 
@@ -223,60 +221,40 @@ def main():
             else:
                 print(f"    Предупреждение: Тикер {ticker_name} не найден в файле оценок {source_name}. Пропуск добавления собственных признаков тикера.")
 
-            # 2. Признаки на основе взвешенных оценок индексов
-            if related_indices and ticker_indices_map: # Убедимся, что есть карта и индексы для тикера
-                print(f"    Расчет взвешенной оценки по индексам для {ticker_name} из {source_name}")
-                
-                moex_aggregated_series = None
-                other_indices_aggregated_series_list = []
+            # 2. Признаки на основе оценок связанных индексов (каждый индекс - отдельный признак)
+            if related_indices and ticker_indices_map:
+                print(f"    Добавление признаков на основе оценок связанных индексов для {ticker_name} из {source_name}")
 
                 for index_name in related_indices:
                     if index_name in scores_df.columns:
                         index_score_series_all_dates = scores_df[index_name]
-                        
+
                         aggregated_index_series = function_C_aggregate_scores_weighted(
-                            ticker_df.index, # Важно: выравниваем по рабочим дням ТИКЕРА
+                            ticker_df.index,  # Выравниваем по рабочим дням ТИКЕРА
                             index_score_series_all_dates,
-                            WEIGHT_NON_WORKING, # Используем те же веса для агрегации нерабочих дней
+                            WEIGHT_NON_WORKING,
                             WEIGHT_WORKING
                         )
 
-                        if index_name == "MOEX":
-                            moex_aggregated_series = aggregated_index_series
+                        # Проверяем, есть ли в агрегированной серии не-NaN значения
+                        if not aggregated_index_series.isna().all():
+                            index_specific_score_col_name = f'Index_{index_name}{suffix}_score'
+                            ticker_df[index_specific_score_col_name] = aggregated_index_series
+                            print(f"      Добавлена колонка оценок для индекса {index_name}: {index_specific_score_col_name}")
+
+                            if index_name != "MOEX":
+                                ticker_df = function_D_calculate_rolling_averages(
+                                    ticker_df,
+                                    index_specific_score_col_name,
+                                    ROLLING_AVERAGE_WINDOWS
+                                )
+                                print(f"      Рассчитаны скользящие средние для {index_specific_score_col_name}")
+                            else:
+                                print(f"      Пропуск расчета скользящих средних для MOEX: {index_specific_score_col_name}")
                         else:
-                            other_indices_aggregated_series_list.append(aggregated_index_series)
-                    # else:
-                    #     print(f"      Предупреждение: Индекс {index_name} не найден в {source_name} для тикера {ticker_name}.")
-
-                # Расчет итоговой взвешенной индексной оценки
-                final_weighted_index_score_series = pd.Series(index=ticker_df.index, dtype=float)
-
-                avg_other_indices_score_series = None
-                if other_indices_aggregated_series_list:
-                    # Создаем DataFrame из списка серий и считаем среднее по строкам, игнорируя NaN
-                    temp_df_others = pd.concat(other_indices_aggregated_series_list, axis=1)
-                    avg_other_indices_score_series = temp_df_others.mean(axis=1)
-
-
-                if moex_aggregated_series is not None and avg_other_indices_score_series is not None:
-                    final_weighted_index_score_series = (moex_aggregated_series * WEIGHT_MOEX_INDEX) + \
-                                                        (avg_other_indices_score_series * WEIGHT_OTHER_INDICES_AVG)
-                elif moex_aggregated_series is not None: # Только MOEX доступен
-                    final_weighted_index_score_series = moex_aggregated_series
-                elif avg_other_indices_score_series is not None: # Только другие индексы доступны
-                    final_weighted_index_score_series = avg_other_indices_score_series
-                # Если ничего не доступно, остается серия нулей
-
-                weighted_index_col_name = f'WeightedIndices{suffix}_score'
-                ticker_df[weighted_index_col_name] = final_weighted_index_score_series
-                print(f"      Добавлена колонка взвешенных оценок индексов: {weighted_index_col_name}")
-
-                ticker_df = function_D_calculate_rolling_averages(
-                    ticker_df,
-                    weighted_index_col_name,
-                    ROLLING_AVERAGE_WINDOWS
-                )
-                print(f"      Рассчитаны скользящие средние для {weighted_index_col_name}")
+                            print(f"      Предупреждение: Агрегированные оценки для индекса {index_name} (источник: {source_name}) для тикера {ticker_name} содержат только NaN. Колонка не будет добавлена.")
+                    else:
+                        print(f"      Предупреждение: Индекс {index_name} не найден в {source_name} для тикера {ticker_name}. Признаки для этого индекса не будут добавлены.")
             elif not related_indices and ticker_indices_map :
                  print(f"    Предупреждение: Для тикера {ticker_name} не найдены связанные индексы в {FILE_TICKERS_INDICES}. Пропуск признаков по индексам.")
 

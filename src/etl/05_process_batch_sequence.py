@@ -101,6 +101,7 @@ def process_single_file(
     output_dir: Path,
     interval: int,
     save_info_dir: Path | None = None,
+    prompt_type: str | None = None,
     max_retries: int = 2,
     retry_wait: int = 30,
     success_wait: int = 30,
@@ -132,7 +133,13 @@ def process_single_file(
         # Сохраняем информацию о запуске (если указана директория)
         if save_info_dir:
             save_info_dir.mkdir(parents=True, exist_ok=True)
-            info_path = save_info_dir / f"batch_info_{batch_id}.json"
+            # Формируем имя файла с учётом prompt_type, если он передан
+            if prompt_type:
+                info_file_name = f"batch_info_{prompt_type}_{batch_id}.json"
+            else:
+                info_file_name = f"batch_info_{batch_id}.json"
+
+            info_path = save_info_dir / info_file_name
             with info_path.open("w", encoding="utf-8") as f:
                 json.dump(
                     {
@@ -140,6 +147,7 @@ def process_single_file(
                         "input_file": str(input_file.resolve()),
                         "submitted_at": pd.Timestamp.now().isoformat(),
                         "attempt": attempt,
+                        "prompt_type": prompt_type,
                     },
                     f,
                     indent=4,
@@ -176,6 +184,16 @@ def process_single_file(
         # Проверяем статус выполнения
         if final_status == "completed" and results_path:
             _logger.info("Пакет успешно обработан и результаты скачаны.")
+
+            # --- Выводим сводку, чтобы внешний контролёр мог получить batch_id без чтения файлов ---
+            summary_payload = {
+                "batch_id": batch_id,
+                "input_file": str(input_file.resolve()),
+                "prompt_type": prompt_type,
+            }
+            # Префикс облегчает поиск нужной строки во stdout
+            print("BATCH_SUMMARY_JSON>>>", json.dumps(summary_payload, ensure_ascii=False))
+
             _logger.info(f"Пауза {success_wait} сек. перед следующим файлом.")
             time.sleep(success_wait)
             return
@@ -250,6 +268,10 @@ def main():
         default=5,
         help="Пауза после успешной обработки пакета (сек).",
     )
+    parser.add_argument(
+        "--prompt-type",
+        help="Тип запроса (если применимо).",
+    )
 
     args = parser.parse_args()
 
@@ -274,6 +296,7 @@ def main():
             output_dir=output_dir,
             interval=args.interval,
             save_info_dir=save_info_dir,
+            prompt_type=args.prompt_type,
             max_retries=args.max_retries,
             retry_wait=args.retry_wait,
             success_wait=args.success_wait,

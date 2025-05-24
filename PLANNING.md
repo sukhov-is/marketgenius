@@ -19,7 +19,7 @@ src/
 ├── etl/                   # Многошаговый конвейер Telegram-новостей
 ├── utils/                 # Вспомогательные классы (GPT анализатор, чистка тикеров)
 ├── data_processing_temp/  # Временные standalone-скрипты (подлежат архивированию)
-└── … (пустые catalog-директории feature_engineering/, models/)
+└── … 
 ```
 
 + Загрузка курсов валют, ключевой ставки, цен нефти уже реализована в `data_ingestion/`.
@@ -58,10 +58,10 @@ src/
 
 | Слой                | Инструменты/Библиотеки |
 |---------------------|-------------------------|
-| ETL / Orchestration | Prefect 2 (или Airflow) |
+| ETL / Orchestration | Airflow |
 | Хранение данных     | Parquet + DuckDB \| Postgres |
 | ML/TS модели        | scikit-learn, pytorch, lightgbm |
-| NLP                 | openai API, sentence-transformers |
+| NLP                 | openai API |
 | API-слой            | FastAPI + Uvicorn |
 | User Interaction    | Telegram Bot API (aiogram) |
 | CI/CD               | GitHub Actions, Docker, (Docker Compose / Kubernetes) |
@@ -107,4 +107,4 @@ src/
 
 ---
 
-_Документ является живым. Внесение изменений через Pull Request с ревью ответственным за архитектуру._
+_Документ является живым._

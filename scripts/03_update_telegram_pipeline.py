@@ -72,7 +72,11 @@ def _import_from_path(module_name: str, file_path: str):
     return module
 
 # Импортируем необходимые модули
-_etl_root = Path(__file__).resolve().parent
+# _etl_root = Path(__file__).resolve().parent # Старый путь
+# Определяем корень проекта, предполагая, что скрипт находится в /scripts, а модули в /src/etl
+_project_root = Path(__file__).resolve().parent.parent
+_etl_root = _project_root / "src" / "etl"
+
 parser_mod = _import_from_path(
     "telegram_parser_mod",
     str(_etl_root / "00_telegram_parser.py"),

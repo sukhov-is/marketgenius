@@ -9,4 +9,8 @@ tqdm
 python-dotenv
 telethon
 openai
-tiktoken 
+tiktoken
+xgboost
+lightgbm
+shap
+optuna 

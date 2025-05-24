@@ -4,18 +4,21 @@ import os
 import glob
 import re
 import logging
+from pathlib import Path
 
 # --- Конфигурация Логирования ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Константы ---
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+# SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# PROJECT_ROOT = os.path.dirname(SCRIPT_DIR) # Старое неверное определение
 
-MERGED_FEATURES_DIR = os.path.join(PROJECT_ROOT, "data/processed/merged_features")
-REFERENCE_DATA_DIR = os.path.join(PROJECT_ROOT, "data/raw/reference")
-FINAL_FEATURES_DIR = os.path.join(PROJECT_ROOT, "data/processed/final_features")
-ISSUE_SIZE_FILE = os.path.join(REFERENCE_DATA_DIR, "issue_sizes.csv")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+MERGED_FEATURES_DIR = PROJECT_ROOT / "data" / "processed" / "merged_features"
+REFERENCE_DATA_DIR = PROJECT_ROOT / "data" / "raw" / "reference"
+FINAL_FEATURES_DIR = PROJECT_ROOT / "data" / "processed" / "final_features"
+ISSUE_SIZE_FILE = REFERENCE_DATA_DIR / "issue_sizes.csv"
 
 # Список коэффициентов, которые мы пытаемся рассчитать
 # (LTM аппроксимируется годовыми данными _y)
@@ -164,7 +167,7 @@ def main():
     logging.info(f"Результаты будут сохранены в: {FINAL_FEATURES_DIR}")
 
     # Получение списка файлов для обработки
-    merged_files = glob.glob(os.path.join(MERGED_FEATURES_DIR, "*_merged.csv"))
+    merged_files = glob.glob(str(MERGED_FEATURES_DIR / "*_merged.csv"))
     if not merged_files:
         logging.error(f"Не найдены файлы в {MERGED_FEATURES_DIR}. Прерывание.")
         return
@@ -211,7 +214,7 @@ def main():
                     
             # Сохранение результата
             output_filename = f"{ticker}_final.csv"
-            output_path = os.path.join(FINAL_FEATURES_DIR, output_filename)
+            output_path = FINAL_FEATURES_DIR / output_filename
             df_final.to_csv(output_path)
             processed_count += 1
             logging.info(f"Результат для {ticker} сохранен в {output_path}")
