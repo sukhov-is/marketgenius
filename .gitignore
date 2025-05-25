@@ -1,5 +1,4 @@
 data/
-*.csv
 *.tsv
 logs/
 .ipynb_checkpoints/
