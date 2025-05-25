@@ -47,52 +47,63 @@ def process_csv_file(file_path):
     binary_pred_cols = []
 
     # Рассчитываем/обновляем таргеты
-    print(f"Рассчитываем таргеты для периодов: {target_periods}")
+    print(f"Рассчитываем/Обновляем таргеты для периодов: {target_periods}")
     for period in target_periods:
         target_col_name = f"target_{period}d"
         
-        # Рассчитываем таргет
-        target_values = calculate_target(df, period)
-        df[target_col_name] = target_values
-        original_target_cols.append(target_col_name)
+        # Всегда рассчитываем/пересчитываем таргет.
+        # Если колонка не существует, она будет создана при присвоении.
+        # Если существует, будет обновлена.
+        print(f"Расчет/Обновление колонки {target_col_name}...")
         
-        print(f"Рассчитан {target_col_name}: {target_values.notna().sum()} значений из {len(target_values)}")
+        target_values = calculate_target(df, period)
+        df[target_col_name] = target_values # Создает или обновляет колонку
+        
+        # Добавляем имя колонки в список для дальнейшей обработки (бинарные, предикты, перемещение)
+        # Проверка на дубликаты перед добавлением
+        if target_col_name not in original_target_cols:
+            original_target_cols.append(target_col_name)
+            
+        print(f"Рассчитан/Обновлен {target_col_name}: {target_values.notna().sum()} значений из {len(target_values)}")
 
     # Создаем/обновляем бинарные таргеты
     print("Создаем/обновляем бинарные таргеты...")
-    for target_col in original_target_cols:
+    for target_col in original_target_cols: # original_target_cols теперь содержит все актуальные таргет-колонки
         binary_target_name = f"{target_col}_binary"
         
-        # Создание бинарной таргет-колонки: 1 если таргет > 0, иначе 0
+        # Создание/обновление бинарной таргет-колонки: 1 если таргет > 0, иначе 0
         df[binary_target_name] = df[target_col].apply(
             lambda x: 1 if pd.notna(x) and x > 0 else 0
         )
-        binary_target_cols.append(binary_target_name)
+        if binary_target_name not in binary_target_cols:
+            binary_target_cols.append(binary_target_name)
         
         positive_count = (df[binary_target_name] == 1).sum()
-        print(f"Создан {binary_target_name}: {positive_count} положительных из {len(df)} записей")
+        print(f"Создан/Обновлен {binary_target_name}: {positive_count} положительных из {len(df)} записей")
 
     # Проверяем и создаем только отсутствующие колонки для предсказаний
     print("Проверяем наличие колонок для предсказаний...")
     
-    for target_col in original_target_cols:
+    for target_col in original_target_cols: # Используем обновленный original_target_cols
         # Колонка для предикта исходного таргета
         original_pred_name = f"{target_col}_pred"
         if original_pred_name not in df.columns:
             df[original_pred_name] = np.nan
             print(f"Создана колонка для предсказаний: {original_pred_name}")
-        else:
-            print(f"Колонка {original_pred_name} уже существует, пропускаем")
-        original_pred_cols.append(original_pred_name)
+        # else: # Оставляем текущую логику - если колонка есть, не трогаем
+            # print(f"Колонка {original_pred_name} уже существует, пропускаем")
+        if original_pred_name not in original_pred_cols:
+             original_pred_cols.append(original_pred_name)
         
         # Колонка для предикта бинарного таргета
         binary_pred_name = f"{target_col}_binary_pred"
         if binary_pred_name not in df.columns:
             df[binary_pred_name] = np.nan
             print(f"Создана колонка для предсказаний: {binary_pred_name}")
-        else:
-            print(f"Колонка {binary_pred_name} уже существует, пропускаем")
-        binary_pred_cols.append(binary_pred_name)
+        # else: # Оставляем текущую логику - если колонка есть, не трогаем
+            # print(f"Колонка {binary_pred_name} уже существует, пропускаем")
+        if binary_pred_name not in binary_pred_cols:
+            binary_pred_cols.append(binary_pred_name)
 
     # Перемещение колонок в конец DataFrame
     # Порядок: исходные таргеты → бинарные таргеты → предикты исходных → предикты бинарных

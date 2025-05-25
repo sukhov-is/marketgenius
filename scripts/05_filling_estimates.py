@@ -208,7 +208,7 @@ def main():
                     WEIGHT_WORKING
                 )
                 
-                agg_score_col_name = f'aggregated_score{suffix}'
+                agg_score_col_name = f'score{suffix}'
                 ticker_df[agg_score_col_name] = aggregated_scores_series
                 print(f"    Добавлена колонка агрегированных оценок тикера: {agg_score_col_name}")
 
@@ -224,6 +224,9 @@ def main():
             # 2. Признаки на основе оценок связанных индексов (каждый индекс - отдельный признак)
             if related_indices and ticker_indices_map:
                 print(f"    Добавление признаков на основе оценок связанных индексов для {ticker_name} из {source_name}")
+                
+                other_indices_aggregated_scores_list = []
+                moex_processed_for_source = False
 
                 for index_name in related_indices:
                     if index_name in scores_df.columns:
@@ -236,27 +239,44 @@ def main():
                             WEIGHT_WORKING
                         )
 
-                        # Проверяем, есть ли в агрегированной серии не-NaN значения
                         if not aggregated_index_series.isna().all():
-                            index_specific_score_col_name = f'Index_{index_name}{suffix}_score'
-                            ticker_df[index_specific_score_col_name] = aggregated_index_series
-                            print(f"      Добавлена колонка оценок для индекса {index_name}: {index_specific_score_col_name}")
-
-                            if index_name != "MOEX":
-                                ticker_df = function_D_calculate_rolling_averages(
-                                    ticker_df,
-                                    index_specific_score_col_name,
-                                    ROLLING_AVERAGE_WINDOWS
-                                )
-                                print(f"      Рассчитаны скользящие средние для {index_specific_score_col_name}")
+                            if index_name == "MOEX":
+                                moex_score_col_name = f'Index_MOEX{suffix}_score'
+                                ticker_df[moex_score_col_name] = aggregated_index_series.round(2)
+                                print(f"      Добавлена колонка оценок для индекса MOEX: {moex_score_col_name}")
+                                # Скользящие средние для MOEX не рассчитываем по условию
+                                print(f"      Пропуск расчета скользящих средних для MOEX: {moex_score_col_name}")
+                                moex_processed_for_source = True
                             else:
-                                print(f"      Пропуск расчета скользящих средних для MOEX: {index_specific_score_col_name}")
+                                # Собираем серии для последующего усреднения, переименовываем, чтобы избежать конфликтов имен
+                                other_indices_aggregated_scores_list.append(aggregated_index_series.rename(f'{index_name}{suffix}_temp'))
                         else:
-                            print(f"      Предупреждение: Агрегированные оценки для индекса {index_name} (источник: {source_name}) для тикера {ticker_name} содержат только NaN. Колонка не будет добавлена.")
+                            print(f"      Предупреждение: Агрегированные оценки для индекса {index_name} (источник: {source_name}) для тикера {ticker_name} содержат только NaN. Индекс не будет учтен.")
                     else:
                         print(f"      Предупреждение: Индекс {index_name} не найден в {source_name} для тикера {ticker_name}. Признаки для этого индекса не будут добавлены.")
+
+                # Обработка собранных "других" индексов
+                if other_indices_aggregated_scores_list:
+                    other_indices_df = pd.concat(other_indices_aggregated_scores_list, axis=1)
+                    avg_other_indices_score = other_indices_df.mean(axis=1)
+                    
+                    avg_other_indices_col_name = f'Avg_Other_Indices{suffix}_score'
+                    ticker_df[avg_other_indices_col_name] = avg_other_indices_score.round(2)
+                    print(f"      Добавлена колонка средних оценок для остальных индексов: {avg_other_indices_col_name}")
+
+                    ticker_df = function_D_calculate_rolling_averages(
+                        ticker_df,
+                        avg_other_indices_col_name,
+                        ROLLING_AVERAGE_WINDOWS
+                    )
+                    print(f"      Рассчитаны скользящие средние для {avg_other_indices_col_name}")
+                elif not moex_processed_for_source : # Если не обработан MOEX и список других индексов пуст
+                     print(f"    Предупреждение: Не найдено данных по индексам (MOEX или другие) из {source_name} для тикера {ticker_name} для создания признаков.")
+
             elif not related_indices and ticker_indices_map :
                  print(f"    Предупреждение: Для тикера {ticker_name} не найдены связанные индексы в {FILE_TICKERS_INDICES}. Пропуск признаков по индексам.")
+            elif not ticker_indices_map:
+                 print(f"    Предупреждение: Карта тикеров к индексам не загружена или пуста. Пропуск признаков по индексам.")
 
         output_file_path = os.path.join(DIR_OUTPUT, f'{ticker_name}_final.csv')
         try:

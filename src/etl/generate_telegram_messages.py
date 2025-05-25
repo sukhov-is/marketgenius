@@ -20,7 +20,7 @@ TEMPLATE = {
     ),
     'news': (
         '📅 {date}\n\n'
-        '📰 *Самари новостей:*\n{tg_summary}\n\n'
+        '📰 *Самари новостей:*\n\n{tg_summary}\n\n'
         '📊 Топ оценок:\n{top_companies}'
         '---\n'
         'Сообщение сгенерировано нейросетью, достоверность информации не гарантируется.\n'
@@ -89,7 +89,7 @@ def format_summary(summary, bullet='🔹'):
     
     # Добавляем буллеты и склеиваем
     sentences = [f'{bullet} {s}' for s in sentences]
-    return '\n'.join(sentences)
+    return '\n\n'.join(sentences)
 
 
 def generate_messages(csv_path, mode='blogs', n=3, output_path=None, start_date=None, end_date=None):
