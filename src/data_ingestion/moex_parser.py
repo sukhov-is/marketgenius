@@ -73,6 +73,10 @@ class MoexLoader:
             DataFrame с историческими данными или None в случае ошибки.
         """
         self.logger.info(f"Загрузка данных для {security} с {start_date} по {end_date}")
+        max_retries = 3
+        retry_delay = 5 # seconds
+        request_timeout = 30 # seconds
+
         try:
             params = {
                 'from': start_date.strftime('%Y-%m-%d'),
@@ -85,15 +89,30 @@ class MoexLoader:
 
             while True:
                 url = f"{self.base_url}/{security}.json"
-                try:
-                    r = requests.get(url, params=params)
-                    r.raise_for_status()
-                    data = r.json()
-                except requests.exceptions.RequestException as req_e:
-                    self.logger.error(f"Ошибка сети при запросе к MOEX API для {security}: {req_e}")
-                    return None
-                except json.JSONDecodeError as json_e:
-                    self.logger.error(f"Ошибка декодирования JSON от MOEX API для {security}: {json_e}")
+                for attempt in range(max_retries):
+                    try:
+                        r = requests.get(url, params=params, timeout=request_timeout)
+                        r.raise_for_status()
+                        data = r.json()
+                        break  # Успешный запрос, выходим из цикла попыток
+                    except requests.exceptions.Timeout as timeout_e:
+                        self.logger.warning(f"Таймаут при запросе к MOEX API для {security} (попытка {attempt + 1}/{max_retries}): {timeout_e}")
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                        else:
+                            self.logger.error(f"Превышено количество попыток запроса к MOEX API для {security} после таймаутов.")
+                            return None
+                    except requests.exceptions.RequestException as req_e:
+                        self.logger.error(f"Ошибка сети при запросе к MOEX API для {security} (попытка {attempt + 1}/{max_retries}): {req_e}")
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay) # Добавляем задержку перед следующей попыткой
+                        else:
+                            self.logger.error(f"Превышено количество попыток запроса к MOEX API для {security} после сетевых ошибок.")
+                            return None # Возвращаем None после всех неудачных попыток
+                    except json.JSONDecodeError as json_e:
+                        self.logger.error(f"Ошибка декодирования JSON от MOEX API для {security}: {json_e}")
+                        return None # Ошибка декодирования JSON обычно не требует повторных попыток
+                else: # Этот блок выполнится, если цикл for завершился без break (все попытки неудачны)
                     return None
 
                 history_data = data.get('history', {}).get('data', [])

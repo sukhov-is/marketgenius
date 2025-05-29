@@ -180,6 +180,7 @@ def load_and_prepare_macro_data(macro_dir: str) -> pd.DataFrame:
     key_rate_path = os.path.join(macro_dir, 'key_rate.csv')
     usd_rub_path = os.path.join(macro_dir, 'usd_rub_rate.csv')
     moex_indices_path = os.path.join(macro_dir, 'moex_indices.csv')
+    cpi_path = os.path.join(macro_dir, 'cpi_daily.csv')
 
     macro_dfs = []
 
@@ -196,6 +197,10 @@ def load_and_prepare_macro_data(macro_dir: str) -> pd.DataFrame:
     # MOEX обрабатывается отдельно, без суффикса
     moex_df = load_moex_indices(moex_indices_path, POTENTIAL_DATE_COLS_MOEX)
     if moex_df is not None: macro_dfs.append(moex_df)
+
+    # Загрузка CPI
+    cpi_df = load_csv_with_date_index(cpi_path, expected_date_col=DATE_COL_MACRO)
+    if cpi_df is not None: macro_dfs.append(cpi_df)
 
     if not macro_dfs:
         logging.warning("Не удалось загрузить ни один файл с макроданными. Макропризнаки не будут добавлены.")

@@ -14,12 +14,12 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # Импортируем все наши классы-загрузчики
-from src.data_ingestion.moex_parser import MoexLoader
-from src.data_ingestion.fin_otchet import FinancialReportLoader
-from src.data_ingestion.indexes_moex import MoexIndexLoader
-from src.data_ingestion.oil_prices_loader import AlphaVantageBrentLoader
-from src.data_ingestion.usd_rub_loader import UsdRubLoader
-from src.data_ingestion.key_rate_loader import KeyRateLoader
+from moex_parser import MoexLoader
+from fin_otchet import FinancialReportLoader
+from indexes_moex import MoexIndexLoader
+from oil_prices_loader import AlphaVantageBrentLoader
+from usd_rub_loader import UsdRubLoader
+from key_rate_loader import KeyRateLoader
 
 # Загружаем переменные окружения из .env файла
 # Ищем .env в текущей директории или выше
@@ -45,7 +45,7 @@ def main():
     parser.add_argument(
         '--years',
         type=int,
-        default=7,
+        default=8,
         help="Количество лет истории для загрузки (по умолчанию: 7)."
     )
     parser.add_argument(
