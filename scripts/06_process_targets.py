@@ -39,7 +39,7 @@ def process_csv_file(file_path):
         return
 
     # Определяем периоды таргетов для расчета
-    target_periods = [1, 3, 7, 30, 180]
+    target_periods = [1, 3, 7, 30, 180, 365]
     
     original_target_cols = []
     binary_target_cols = []

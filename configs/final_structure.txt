@@ -78,80 +78,92 @@
 
 ─ Макро- и индексные ряды
 76 BRENT_CLOSE – нефть Brent
-77 KEY_RATE – ключевая ставка ЦБ РФ
-78 USD_RUB – курс USD/RUB
-79 MRBC – индекс облигаций МосБиржи
-80 RTSI – Индекс РТС
-81 MCXSM – Индекс МосБиржи малой и средней капитализации
-82 IMOEX – Индекс МосБиржи
-83 MOEXBC – Индекс МосБиржи широкого рынка
-84 MOEXBMI – Индекс МосБиржи голубых фишек
-85 MOEXCN – Индекс МосБиржи потребительского сектора
-86 MOEXIT – Индекс МосБиржи информационных технологий
-87 MOEXRE – Индекс МосБиржи строительных компаний
-88 MOEXEU – Индекс МосБиржи электроэнергетики
-89 MOEXFN – Индекс МосБиржи финансов
-90 MOEXINN – Индекс МосБиржи инноваций
-91 MOEXMM – Индекс МосБиржи металлов и добычи
-92 MOEXOG – Индекс МосБиржи нефти и газа
-93 MOEXTL – Индекс МосБиржи телекоммуникаций
-94 MOEXTN – Индекс МосБиржи транспорта
-95 MOEXCH – Индекс МосБиржи химии и нефтехимии
+77 NATURAL_GAS_CLOSE – природный газ Henry Hub
+78 KEY_RATE – ключевая ставка ЦБ РФ
+79 USD_RUB – курс USD/RUB
+80 EUR_RUB – курс EUR/RUB
+81 CNY_RUB – курс CNY/RUB
+82 KZT_RUB – курс KZT/RUB
+83 TRY_RUB – курс TRY/RUB
+84 MRBC – индекс облигаций МосБиржи
+85 RTSI – Индекс РТС
+86 MCXSM – Индекс МосБиржи малой и средней капитализации
+87 IMOEX – Индекс МосБиржи
+88 MOEXBC – Индекс МосБиржи широкого рынка
+89 MOEXBMI – Индекс МосБиржи голубых фишек
+90 MOEXCN – Индекс МосБиржи потребительского сектора
+91 MOEXIT – Индекс МосБиржи информационных технологий
+92 MOEXRE – Индекс МосБиржи строительных компаний
+93 MOEXEU – Индекс МосБиржи электроэнергетики
+94 MOEXFN – Индекс МосБиржи финансов
+95 MOEXINN – Индекс МосБиржи инноваций
+96 MOEXMM – Индекс МосБиржи металлов и добычи
+97 MOEXOG – Индекс МосБиржи нефти и газа
+98 MOEXTL – Индекс МосБиржи телекоммуникаций
+99 MOEXTN – Индекс МосБиржи транспорта
+100 MOEXCH – Индекс МосБиржи химии и нефтехимии
+101 GOLD – цена золота
+102 SILVER – цена серебра
+103 CPI – индекс потребительских цен
 
 ─ Относительные коэффициенты
-96 ROE_y – рентабельность капитала, год.
-97 ROA_y – рентабельность активов.
-98 EBITDA_Margin_y – EBITDA/Revenue.
-99 NetProfit_Margin_y – чистая маржа.
-100 Debt_Equity_q 
-101 Debt_Equity_y – Debt/Equity.
-102 NetDebt_EBITDA_y_q 
-103 NetDebt_EBITDA_y_y – NetDebt/EBITDA y/y.
-104 EPS_y – прибыль на акцию.
-105 BVPS_q
-106 BVPS_y – балансовая стоимость на акцию.
-107 SPS_y – выручка на акцию.
-108 PE_y – коэффициент P/E.
-109 PB_q 
-110 PB_y – P/B.
-111 PS_y – P/S.
-112 EV_EBITDA_y – EV/EBITDA.
+104 ROE_y – рентабельность капитала, год.
+105 ROA_y – рентабельность активов.
+106 EBITDA_Margin_y – EBITDA/Revenue.
+107 NetProfit_Margin_y – чистая маржа.
+108 Debt_Equity_q
+109 Debt_Equity_y – Debt/Equity.
+110 NetDebt_EBITDA_y_q
+111 NetDebt_EBITDA_y_y – NetDebt/EBITDA y/y.
+112 EPS_y – прибыль на акцию.
+113 BVPS_q
+114 BVPS_y – балансовая стоимость на акцию.
+115 SPS_y – выручка на акцию.
+116 PE_y – коэффициент P/E.
+117 PB_q
+118 PB_y – P/B.
+119 PS_y – P/S.
+120 EV_EBITDA_y – EV/EBITDA.
 
 ─ Медиа-показатели
-113 score_blog – Общая тональность блогов по бумаге за день.
-114 score_blog_roll_avg_15 – Скользящее среднее (15 дней) по score_blog.
-115 score_blog_roll_avg_50 – Скользящее среднее (50 дней) по score_blog.
-116 Index_MOEX_blog_score – Тональность блогов по индексу MOEX за день.
-117 Avg_Other_Indices_blog_score – Средняя тональность блогов по другим релевантным индексам за день.
-118 Avg_Other_Indices_blog_score_roll_avg_15 – Скользящее среднее (15 дней) по Avg_Other_Indices_blog_score.
-119 Avg_Other_Indices_blog_score_roll_avg_50 – Скользящее среднее (50 дней) по Avg_Other_Indices_blog_score.
-120 score_news – Общая тональность новостей по бумаге за день.
-121 score_news_roll_avg_15 – Скользящее среднее (15 дней) по score_news.
-122 score_news_roll_avg_50 – Скользящее среднее (50 дней) по score_news.
-123 Index_MOEX_news_score – Тональность новостей по индексу MOEX за день.
-124 Avg_Other_Indices_news_score – Средняя тональность новостей по другим релевантным индексам за день.
-125 Avg_Other_Indices_news_score_roll_avg_15 – Скользящее среднее (15 дней) по Avg_Other_Indices_news_score.
-126 Avg_Other_Indices_news_score_roll_avg_50 – Скользящее среднее (50 дней) по Avg_Other_Indices_news_score.
+121 score_blog – Общая тональность блогов по бумаге за день.
+122 score_blog_roll_avg_15 – Скользящее среднее (15 дней) по score_blog.
+123 score_blog_roll_avg_50 – Скользящее среднее (50 дней) по score_blog.
+124 Index_MOEX_blog_score – Тональность блогов по индексу MOEX за день.
+125 Avg_Other_Indices_blog_score – Средняя тональность блогов по другим релевантным индексам за день.
+126 Avg_Other_Indices_blog_score_roll_avg_15 – Скользящее среднее (15 дней) по Avg_Other_Indices_blog_score.
+127 Avg_Other_Indices_blog_score_roll_avg_50 – Скользящее среднее (50 дней) по Avg_Other_Indices_blog_score.
+128 score_news – Общая тональность новостей по бумаге за день.
+129 score_news_roll_avg_15 – Скользящее среднее (15 дней) по score_news.
+130 score_news_roll_avg_50 – Скользящее среднее (50 дней) по score_news.
+131 Index_MOEX_news_score – Тональность новостей по индексу MOEX за день.
+132 Avg_Other_Indices_news_score – Средняя тональность новостей по другим релевантным индексам за день.
+133 Avg_Other_Indices_news_score_roll_avg_15 – Скользящее среднее (15 дней) по Avg_Other_Indices_news_score.
+134 Avg_Other_Indices_news_score_roll_avg_50 – Скользящее среднее (50 дней) по Avg_Other_Indices_news_score.
 
 ─ Целевые переменные и их предсказания
-127 target_1d – Доходность на горизонте 1 день.
-128 target_3d – Доходность на горизонте 3 дня.
-129 target_7d – Доходность на горизонте 7 дней.
-130 target_30d – Доходность на горизонте 30 дней.
-131 target_180d – Доходность на горизонте 180 дней.
-132 target_1d_binary – Бинарный таргет для target_1d (1 если > 0, иначе 0).
-133 target_3d_binary – Бинарный таргет для target_3d (1 если > 0, иначе 0).
-134 target_7d_binary – Бинарный таргет для target_7d (1 если > 0, иначе 0).
-135 target_30d_binary – Бинарный таргет для target_30d (1 если > 0, иначе 0).
-136 target_180d_binary – Бинарный таргет для target_180d (1 если > 0, иначе 0).
-137 target_1d_pred – Предсказанное значение для target_1d.
-138 target_3d_pred – Предсказанное значение для target_3d.
-139 target_7d_pred – Предсказанное значение для target_7d.
-140 target_30d_pred – Предсказанное значение для target_30d.
-141 target_180d_pred – Предсказанное значение для target_180d.
-142 target_1d_binary_pred – Предсказанное значение для target_1d_binary.
-143 target_3d_binary_pred – Предсказанное значение для target_3d_binary.
-144 target_7d_binary_pred – Предсказанное значение для target_7d_binary.
-145 target_30d_binary_pred – Предсказанное значение для target_30d_binary.
-146 target_180d_binary_pred – Предсказанное значение для target_180d_binary.
+135 target_1d – Доходность на горизонте 1 день.
+136 target_3d – Доходность на горизонте 3 дня.
+137 target_7d – Доходность на горизонте 7 дней.
+138 target_30d – Доходность на горизонте 30 дней.
+139 target_180d – Доходность на горизонте 180 дней.
+140 target_365d – Доходность на горизонте 365 дней.
+141 target_1d_binary – Бинарный таргет для target_1d (1 если > 0, иначе 0).
+142 target_3d_binary – Бинарный таргет для target_3d (1 если > 0, иначе 0).
+143 target_7d_binary – Бинарный таргет для target_7d (1 если > 0, иначе 0).
+144 target_30d_binary – Бинарный таргет для target_30d (1 если > 0, иначе 0).
+145 target_180d_binary – Бинарный таргет для target_180d (1 если > 0, иначе 0).
+146 target_365d_binary – Бинарный таргет для target_365d (1 если > 0, иначе 0).
+147 target_1d_pred – Предсказанное значение для target_1d.
+148 target_3d_pred – Предсказанное значение для target_3d.
+149 target_7d_pred – Предсказанное значение для target_7d.
+150 target_30d_pred – Предсказанное значение для target_30d.
+151 target_180d_pred – Предсказанное значение для target_180d.
+152 target_365d_pred – Предсказанное значение для target_365d.
+153 target_1d_binary_pred – Предсказанное значение для target_1d_binary.
+154 target_3d_binary_pred – Предсказанное значение для target_3d_binary.
+155 target_7d_binary_pred – Предсказанное значение для target_7d_binary.
+156 target_30d_binary_pred – Предсказанное значение для target_30d_binary.
+157 target_180d_binary_pred – Предсказанное значение для target_180d_binary.
+158 target_365d_binary_pred – Предсказанное значение для target_365d_binary.
 
