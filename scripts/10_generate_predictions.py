@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import os
 import glob
-from lightgbm import LGBMClassifier
+from lightgbm import LGBMClassifier, LGBMRegressor
 from tqdm import tqdm
 import warnings
 
@@ -54,8 +54,9 @@ X_media_features = [
 X_base_features = price_volume_cols + ma_cols + oscillator_cols + fundamental_cols + macro_index_cols + relative_coeff_cols
 X_extended_features = X_base_features + X_media_features
 
-# --- Целевые переменные для классификации ---
+# --- Целевые переменные ---
 Y_CLF_BINARY_TARGETS = ['target_1d_binary', 'target_3d_binary', 'target_7d_binary', 'target_30d_binary', 'target_180d_binary', 'target_365d_binary']
+Y_REG_TARGETS = ['target_1d', 'target_3d', 'target_7d', 'target_30d', 'target_180d', 'target_365d']
 
 # Лучшие параметры из Optuna в ноутбуке для LGBMClassifier
 BEST_LGBM_PARAMS = {
@@ -75,10 +76,19 @@ BEST_LGBM_PARAMS = {
     'reg_lambda': 1.5666922059058115e-06
 }
 
+# Параметры для регрессора (используем базовые, как в ноутбуке)
+BEST_LGBM_REG_PARAMS = {
+    'objective': 'regression_l1', # MAE
+    'metric': 'mae',
+    'verbosity': -1,
+    'random_state': 42,
+    'n_jobs': -1
+}
+
 def generate_predictions():
     """
-    Обучает модели LightGBMClassifier на объединенных данных и делает прогнозы для каждого тикера,
-    обновляя файлы в папке data/features_final.
+    Обучает модели LightGBMClassifier и LGBMRegressor на объединенных данных 
+    и делает прогнозы для каждого тикера, обновляя файлы в папке data/features_final.
     """
     try:
         print("1. Загрузка и объединение данных...")
@@ -96,30 +106,52 @@ def generate_predictions():
         print(f"Используется {len(available_features)} из {len(X_extended_features)} признаков.")
         
         # 2. Обучение моделей
-        print("\n2. Обучение моделей LightGBMClassifier для каждого таргета...")
-        trained_models = {}
+        print("\n2. Обучение моделей...")
+        
+        trained_clf_models = {}
+        print("--- Обучение моделей LightGBMClassifier ---")
         for target_col in Y_CLF_BINARY_TARGETS:
-            print(f"--- Обучение модели для {target_col} ---")
+            print(f"--- Обучение для {target_col} ---")
             if target_col not in all_stocks_df.columns:
                 print(f"Целевая переменная {target_col} отсутствует. Пропуск.")
                 continue
 
             # Подготовка данных для обучения
-            df_train = all_stocks_df.dropna(subset=[target_col])
-            X_train = df_train[available_features]
-            y_train = df_train[target_col]
+            df_train_clf = all_stocks_df.dropna(subset=[target_col])
+            X_train_clf = df_train_clf[available_features]
+            y_train_clf = df_train_clf[target_col]
 
-            if len(y_train.unique()) < 2:
-                print(f"В таргете {target_col} только один класс ({y_train.unique()}) после удаления NaN. Модель не будет обучена.")
+            if len(y_train_clf.unique()) < 2:
+                print(f"В таргете {target_col} только один класс ({y_train_clf.unique()}) после удаления NaN. Модель не будет обучена.")
                 continue
             
             # Обучение модели
             model = LGBMClassifier(**BEST_LGBM_PARAMS)
-            model.fit(X_train, y_train)
-            trained_models[target_col] = model
-            print(f"Модель для {target_col} обучена. Количество строк для обучения: {len(X_train)}")
+            model.fit(X_train_clf, y_train_clf)
+            trained_clf_models[target_col] = model
+            print(f"Модель для {target_col} обучена. Количество строк для обучения: {len(X_train_clf)}")
 
-        if not trained_models:
+        trained_reg_models = {}
+        print("\n--- Обучение моделей LGBMRegressor ---")
+        for target_col in Y_REG_TARGETS:
+            print(f"--- Обучение для {target_col} ---")
+            if target_col not in all_stocks_df.columns:
+                print(f"Целевая переменная {target_col} отсутствует. Пропуск.")
+                continue
+
+            # Подготовка данных для обучения
+            df_train_reg = all_stocks_df.dropna(subset=[target_col])
+            X_train_reg = df_train_reg[available_features]
+            y_train_reg = df_train_reg[target_col]
+            
+            # Обучение модели
+            model = LGBMRegressor(**BEST_LGBM_REG_PARAMS)
+            model.fit(X_train_reg, y_train_reg)
+            trained_reg_models[target_col] = model
+            print(f"Модель для {target_col} обучена. Количество строк для обучения: {len(X_train_reg)}")
+
+
+        if not trained_clf_models and not trained_reg_models:
             print("Ни одной модели не было обучено. Завершение работы.")
             return
             
@@ -139,8 +171,14 @@ def generate_predictions():
                 # Выбираем признаки в правильном порядке
                 X_predict = X_predict_base[available_features]
 
-                # Делаем прогнозы для всех обученных моделей
-                for target_col, model in trained_models.items():
+                # Делаем прогнозы для классификаторов
+                for target_col, model in trained_clf_models.items():
+                    pred_col = f'{target_col}_pred'
+                    predictions = model.predict(X_predict)
+                    ticker_df[pred_col] = predictions
+                
+                # Делаем прогнозы для регрессоров
+                for target_col, model in trained_reg_models.items():
                     pred_col = f'{target_col}_pred'
                     predictions = model.predict(X_predict)
                     ticker_df[pred_col] = predictions
